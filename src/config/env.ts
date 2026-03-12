@@ -21,9 +21,10 @@ const envSchema = z.object({
   GOOGLE_AI_KEY: z.string().optional(),
   
   // Default AI provider and model
-  DEFAULT_AI_PROVIDER: z.enum(['openai', 'anthropic', 'google']).default('openai'),
-  DEFAULT_ARCHITECT_MODEL: z.string().default('gpt-4o'),
-  DEFAULT_CODER_MODEL: z.string().default('gpt-4o'),
+  // 'anthropic' = Claude (recommended primary). Falls back automatically if key missing.
+  DEFAULT_AI_PROVIDER: z.enum(['openai', 'anthropic', 'google']).default('anthropic'),
+  DEFAULT_ARCHITECT_MODEL: z.string().default('claude-sonnet-4-6'),
+  DEFAULT_CODER_MODEL: z.string().default('claude-sonnet-4-6'),
   
   // Preview Server
   PREVIEW_BASE_PORT: z.coerce.number().default(3100),

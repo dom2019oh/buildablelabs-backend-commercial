@@ -1,21 +1,22 @@
 // =============================================================================
-// Architect Service - Project Planning Phase
+// Architect Service — Discord Bot Planning Phase
 // =============================================================================
-// Converts user prompts into structured project plans.
-// NO code is generated at this stage - only planning.
+// Converts a plain-English bot description into a structured build plan:
+// language, files, commands, intents, and dependencies.
+// No code is generated here — only planning.
 
-import OpenAI from 'openai';
 import { z } from 'zod';
 import { aiLogger as logger } from '../../utils/logger';
-import { env } from '../../config/env';
+import { callAI, resolveModel, resolveProvider } from './providers';
 import type { ProjectPlan } from './pipeline';
 
 // =============================================================================
 // SCHEMA
 // =============================================================================
 
-const projectPlanSchema = z.object({
+const botPlanSchema = z.object({
   projectType: z.string(),
+  language: z.enum(['python', 'javascript', 'typescript']).default('python'),
   description: z.string(),
   files: z.array(z.object({
     path: z.string(),
@@ -23,6 +24,12 @@ const projectPlanSchema = z.object({
     dependencies: z.array(z.string()),
   })),
   dependencies: z.array(z.string()),
+  commands: z.array(z.object({
+    name: z.string(),
+    description: z.string(),
+    type: z.enum(['prefix', 'slash']).default('prefix'),
+  })).optional(),
+  intents: z.array(z.string()).optional(),
   routes: z.array(z.string()).optional(),
 });
 
@@ -31,79 +38,102 @@ const projectPlanSchema = z.object({
 // =============================================================================
 
 export class Architect {
-  private client: OpenAI;
   private model: string;
 
-  constructor(model: string = 'gpt-4o') {
-    this.client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
-    this.model = model;
+  constructor(model?: string) {
+    const provider = resolveProvider();
+    this.model = model ?? resolveModel('architect', provider);
   }
 
   async createPlan(
     prompt: string,
     existingFiles: Array<{ file_path: string; content: string }>
   ): Promise<ProjectPlan> {
-    const systemPrompt = `You are an expert software architect. Your job is to analyze user requirements and create a structured project plan.
 
-You must output a JSON object with this structure:
+    const systemPrompt = `You are an expert Discord bot architect. Your job is to analyse a user's plain-English bot request and produce a structured JSON build plan.
+
+You must output ONLY a valid JSON object — no markdown, no explanation — with this structure:
+
 {
-  "projectType": "landing-page" | "dashboard" | "e-commerce" | "blog" | "app",
-  "description": "Brief description of what will be built",
+  "projectType": "music-bot" | "moderation-bot" | "economy-bot" | "leveling-bot" | "ticket-bot" | "utility-bot" | "welcome-bot" | "custom-bot",
+  "language": "python" | "javascript" | "typescript",
+  "description": "Concise description of what the bot does",
   "files": [
     {
-      "path": "src/components/Hero.tsx",
-      "purpose": "Hero section with headline and CTA",
-      "dependencies": ["src/components/ui/button.tsx"]
+      "path": "bot.py",
+      "purpose": "Main entry point — loads cogs, sets up intents, runs the bot",
+      "dependencies": []
+    },
+    {
+      "path": "cogs/music.py",
+      "purpose": "Music cog — play, queue, skip, shuffle, nowplaying commands",
+      "dependencies": ["bot.py"]
     }
   ],
-  "dependencies": ["package-name"],
-  "routes": ["/", "/about", "/contact"]
+  "dependencies": ["discord.py", "yt-dlp", "python-dotenv"],
+  "commands": [
+    { "name": "play",  "description": "Play a song from YouTube", "type": "prefix" },
+    { "name": "skip",  "description": "Skip current track",        "type": "prefix" }
+  ],
+  "intents": ["GUILDS", "GUILD_MESSAGES", "GUILD_VOICE_STATES", "MESSAGE_CONTENT"]
 }
 
-Rules:
-1. Use React + Vite + TypeScript + Tailwind CSS stack
-2. Prefer shadcn/ui components (already installed)
-3. Keep files small and focused (under 200 lines each)
-4. Use proper component organization: pages, components, hooks, lib
-5. Consider existing files and avoid conflicts
-6. Plan for incremental builds - each file should be independently valid
+Language selection rules:
+- Default to Python (discord.py) unless the user specifically requests JavaScript or TypeScript
+- For Python: use cogs/extensions per feature area, python-dotenv for config
+- For JavaScript/TypeScript: use discord.js v14, separate command files in /commands
 
-Existing files in project:
-${existingFiles.map(f => f.file_path).join('\n') || 'None (new project)'}`;
+File structure rules (Python):
+- bot.py            — entry point, loads cogs, configures intents
+- cogs/<feature>.py — one cog per major feature (music, moderation, economy, etc.)
+- utils/helpers.py  — shared utility functions if needed
+- .env.example      — BOT_TOKEN, PREFIX, GUILD_ID placeholders
+- requirements.txt  — all pip dependencies
 
-    const userPrompt = `Create a project plan for:
+File structure rules (JavaScript/TypeScript):
+- index.js/ts              — entry point, loads commands and events
+- commands/<name>.js/ts    — one file per slash/prefix command
+- events/<event>.js/ts     — event handlers (ready, messageCreate, etc.)
+- utils/helpers.js/ts      — shared utilities
+- .env.example             — BOT_TOKEN, CLIENT_ID, GUILD_ID
+- package.json             — with all npm dependencies
 
-${prompt}
+Existing files in this project:
+${existingFiles.map(f => f.file_path).join('\n') || 'None (new project)'}
 
-Output ONLY valid JSON, no markdown or explanation.`;
+Output ONLY valid JSON.`;
 
-    logger.info({ model: this.model, promptLength: prompt.length }, 'Creating project plan');
+    const userPrompt = `Create a Discord bot build plan for:\n\n${prompt}`;
 
-    const response = await this.client.chat.completions.create({
+    logger.info({ model: this.model, promptLength: prompt.length }, 'Creating Discord bot plan');
+
+    const response = await callAI({
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
       model: this.model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      response_format: { type: 'json_object' },
-      temperature: 0.7,
-      max_tokens: 4000,
+      maxTokens: 4000,
+      temperature: 0.4,
+      jsonMode: true,
     });
 
-    const content = response.choices[0]?.message?.content;
-    if (!content) {
-      throw new Error('No response from AI');
+    // Strip any accidental markdown code fences
+    let raw = response.content.trim();
+    if (raw.startsWith('```')) {
+      raw = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
     }
 
-    // Parse and validate
-    const parsed = JSON.parse(content);
-    const validated = projectPlanSchema.parse(parsed);
+    const parsed = JSON.parse(raw);
+    const validated = botPlanSchema.parse(parsed);
 
-    logger.info({ 
+    logger.info({
+      provider: response.provider,
       filesPlanned: validated.files.length,
+      language: validated.language,
       projectType: validated.projectType,
-    }, 'Plan created successfully');
+      inputTokens: response.inputTokens,
+      outputTokens: response.outputTokens,
+    }, 'Discord bot plan created');
 
-    return validated;
+    return validated as ProjectPlan;
   }
 }
