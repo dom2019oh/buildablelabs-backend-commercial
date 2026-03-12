@@ -11,10 +11,11 @@ const envSchema = z.object({
   VERSION: z.string().default('1.0.0'),
   CORS_ORIGINS: z.string().transform((s) => s.split(',')).default('*'),
   
-  // Supabase
-  SUPABASE_URL: z.string().url(),
-  SUPABASE_SERVICE_KEY: z.string().min(1),
-  
+  // Firebase Admin (for JWT verification)
+  FIREBASE_PROJECT_ID: z.string().min(1),
+  // Base64-encoded service account JSON from Firebase console
+  FIREBASE_SERVICE_ACCOUNT_KEY: z.string().min(1),
+
   // AI Providers (at least one required)
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
@@ -22,9 +23,9 @@ const envSchema = z.object({
   
   // Default AI provider and model
   // 'anthropic' = Claude (recommended primary). Falls back automatically if key missing.
-  DEFAULT_AI_PROVIDER: z.enum(['openai', 'anthropic', 'google']).default('anthropic'),
-  DEFAULT_ARCHITECT_MODEL: z.string().default('claude-sonnet-4-6'),
-  DEFAULT_CODER_MODEL: z.string().default('claude-sonnet-4-6'),
+  DEFAULT_AI_PROVIDER: z.enum(['openai', 'anthropic', 'google']).default('openai'),
+  DEFAULT_ARCHITECT_MODEL: z.string().default('gpt-4o'),
+  DEFAULT_CODER_MODEL: z.string().default('gpt-4o'),
   
   // Preview Server
   PREVIEW_BASE_PORT: z.coerce.number().default(3100),

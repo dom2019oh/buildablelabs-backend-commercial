@@ -9,6 +9,15 @@ import { cors } from 'hono/cors';
 import { logger as honoLogger } from 'hono/logger';
 import { env } from './config/env';
 import { logger } from './utils/logger';
+import admin from 'firebase-admin';
+
+// Initialise Firebase Admin once
+if (!admin.apps.length) {
+  const serviceAccount = JSON.parse(
+    Buffer.from(env.FIREBASE_SERVICE_ACCOUNT_KEY, 'base64').toString('utf8')
+  );
+  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+}
 
 // Routes
 import { workspaceRoutes } from './api/workspace';
@@ -48,25 +57,23 @@ app.get('/health', (c) => {
 
 const api = new Hono();
 
-// JWT verification middleware
+// JWT verification middleware — verifies Firebase ID tokens
 api.use('*', async (c, next) => {
   const authHeader = c.req.header('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return c.json({ error: 'Unauthorized' }, 401);
   }
-  
+
   const token = authHeader.slice(7);
-  
-  // Verify JWT with Supabase
-  const { data, error } = await c.get('supabase').auth.getUser(token);
-  if (error || !data.user) {
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    c.set('userId', decoded.uid);
+    c.set('user', decoded);
+  } catch {
     return c.json({ error: 'Invalid token' }, 401);
   }
-  
-  // Attach user to context
-  c.set('user', data.user);
-  c.set('userId', data.user.id);
-  
+
   await next();
 });
 

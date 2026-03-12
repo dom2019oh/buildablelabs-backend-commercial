@@ -15,21 +15,22 @@
     "db:generate": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > src/types/database.ts"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.91.1",
-    "hono": "^4.6.0",
-    "bullmq": "^5.13.0",
-    "ioredis": "^5.4.1",
-    "openai": "^4.70.0",
     "@anthropic-ai/sdk": "^0.32.0",
     "@google/generative-ai": "^0.21.0",
-    "zod": "^3.25.0",
-    "pino": "^9.5.0",
-    "pino-pretty": "^11.3.0",
-    "nanoid": "^5.0.8",
+    "@supabase/supabase-js": "^2.91.1",
+    "bullmq": "^5.13.0",
     "dotenv": "^16.4.5",
     "execa": "^9.5.1",
+    "firebase-admin": "^13.7.0",
+    "get-port": "^7.1.0",
+    "hono": "^4.6.0",
+    "ioredis": "^5.4.1",
+    "nanoid": "^5.0.8",
+    "openai": "^4.70.0",
+    "pino": "^9.5.0",
+    "pino-pretty": "^11.3.0",
     "tree-kill": "^1.2.2",
-    "get-port": "^7.1.0"
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
