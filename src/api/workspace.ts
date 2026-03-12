@@ -14,7 +14,7 @@ const app = new Hono();
 // =============================================================================
 
 const createWorkspaceSchema = z.object({
-  projectId: z.string().uuid(),
+  projectId: z.string().min(1),
 });
 
 const getFileSchema = z.object({

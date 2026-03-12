@@ -1,64 +1,59 @@
 // =============================================================================
-// Database Query Helpers
+// Database Query Helpers — Firestore
 // =============================================================================
 
-import { supabase } from './client';
-import { nanoid } from 'nanoid';
+import { db } from './client';
 
 // =============================================================================
 // WORKSPACE QUERIES
 // =============================================================================
 
 export async function getOrCreateWorkspace(projectId: string, userId: string) {
-  // Try to get existing workspace
-  const { data: existing } = await supabase
-    .from('workspaces')
-    .select('*')
-    .eq('project_id', projectId)
-    .eq('user_id', userId)
-    .single();
+  const snapshot = await db().collection('workspaces')
+    .where('project_id', '==', projectId)
+    .where('user_id', '==', userId)
+    .limit(1)
+    .get();
 
-  if (existing) {
-    return existing;
+  if (!snapshot.empty) {
+    const doc = snapshot.docs[0];
+    return { id: doc.id, ...doc.data() };
   }
 
-  // Create new workspace
-  const { data, error } = await supabase
-    .from('workspaces')
-    .insert({
-      project_id: projectId,
-      user_id: userId,
-      status: 'ready',
-    })
-    .select()
-    .single();
+  const now = new Date().toISOString();
+  const ref = await db().collection('workspaces').add({
+    project_id: projectId,
+    user_id: userId,
+    status: 'ready',
+    created_at: now,
+    updated_at: now,
+  });
 
-  if (error) throw error;
-  return data;
+  const newDoc = await ref.get();
+  return { id: newDoc.id, ...newDoc.data() };
 }
 
 export async function getWorkspace(workspaceId: string, userId: string) {
-  const { data, error } = await supabase
-    .from('workspaces')
-    .select('*')
-    .eq('id', workspaceId)
-    .eq('user_id', userId)
-    .single();
-
-  if (error) throw error;
-  return data;
+  const doc = await db().collection('workspaces').doc(workspaceId).get();
+  if (!doc.exists || doc.data()?.user_id !== userId) return null;
+  return { id: doc.id, ...doc.data() };
 }
 
 export async function updateWorkspaceStatus(
   workspaceId: string,
   status: 'initializing' | 'ready' | 'generating' | 'error' | 'archived'
 ) {
-  const { error } = await supabase
-    .from('workspaces')
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq('id', workspaceId);
+  await db().collection('workspaces').doc(workspaceId).update({
+    status,
+    updated_at: new Date().toISOString(),
+  });
+}
 
-  if (error) throw error;
+export async function updateWorkspace(workspaceId: string, updates: Record<string, unknown>) {
+  await db().collection('workspaces').doc(workspaceId).update({
+    ...updates,
+    updated_at: new Date().toISOString(),
+  });
 }
 
 // =============================================================================
@@ -66,26 +61,22 @@ export async function updateWorkspaceStatus(
 // =============================================================================
 
 export async function getWorkspaceFiles(workspaceId: string) {
-  const { data, error } = await supabase
-    .from('workspace_files')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .order('file_path', { ascending: true });
-
-  if (error) throw error;
-  return data || [];
+  const snapshot = await db().collection('workspaceFiles')
+    .where('workspace_id', '==', workspaceId)
+    .orderBy('file_path')
+    .get();
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
 export async function getFile(workspaceId: string, filePath: string) {
-  const { data, error } = await supabase
-    .from('workspace_files')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .eq('file_path', filePath)
-    .single();
-
-  if (error && error.code !== 'PGRST116') throw error;
-  return data;
+  const snapshot = await db().collection('workspaceFiles')
+    .where('workspace_id', '==', workspaceId)
+    .where('file_path', '==', filePath)
+    .limit(1)
+    .get();
+  if (snapshot.empty) return null;
+  const doc = snapshot.docs[0];
+  return { id: doc.id, ...doc.data() };
 }
 
 export async function upsertFile(
@@ -95,58 +86,64 @@ export async function upsertFile(
   content: string,
   fileType?: string
 ) {
-  const { data, error } = await supabase
-    .from('workspace_files')
-    .upsert({
-      workspace_id: workspaceId,
-      user_id: userId,
-      file_path: filePath,
-      content,
-      file_type: fileType || filePath.split('.').pop() || null,
-      is_generated: true,
-      updated_at: new Date().toISOString(),
-    }, {
-      onConflict: 'workspace_id,file_path',
-    })
-    .select()
-    .single();
+  const snapshot = await db().collection('workspaceFiles')
+    .where('workspace_id', '==', workspaceId)
+    .where('file_path', '==', filePath)
+    .limit(1)
+    .get();
 
-  if (error) throw error;
-  return data;
+  const fileData = {
+    workspace_id: workspaceId,
+    user_id: userId,
+    file_path: filePath,
+    content,
+    file_type: fileType || filePath.split('.').pop() || null,
+    is_generated: true,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (!snapshot.empty) {
+    await snapshot.docs[0].ref.update(fileData);
+    return { id: snapshot.docs[0].id, ...fileData };
+  }
+
+  const ref = await db().collection('workspaceFiles').add({
+    ...fileData,
+    created_at: new Date().toISOString(),
+  });
+  return { id: ref.id, ...fileData };
 }
 
 export async function deleteFile(workspaceId: string, filePath: string) {
-  const { error } = await supabase
-    .from('workspace_files')
-    .delete()
-    .eq('workspace_id', workspaceId)
-    .eq('file_path', filePath);
-
-  if (error) throw error;
+  const snapshot = await db().collection('workspaceFiles')
+    .where('workspace_id', '==', workspaceId)
+    .where('file_path', '==', filePath)
+    .get();
+  const batch = db().batch();
+  snapshot.docs.forEach(doc => batch.delete(doc.ref));
+  await batch.commit();
 }
 
 // =============================================================================
 // GENERATION SESSION QUERIES
 // =============================================================================
 
-export async function createSession(
-  workspaceId: string,
-  userId: string,
-  prompt: string
-) {
-  const { data, error } = await supabase
-    .from('generation_sessions')
-    .insert({
-      workspace_id: workspaceId,
-      user_id: userId,
-      prompt,
-      status: 'pending',
-    })
-    .select()
-    .single();
+export async function createSession(workspaceId: string, userId: string, prompt: string) {
+  const ref = await db().collection('generationSessions').add({
+    workspace_id: workspaceId,
+    user_id: userId,
+    prompt,
+    status: 'pending',
+    created_at: new Date().toISOString(),
+  });
+  const doc = await ref.get();
+  return { id: doc.id, ...doc.data() };
+}
 
-  if (error) throw error;
-  return data;
+export async function getSession(sessionId: string) {
+  const doc = await db().collection('generationSessions').doc(sessionId).get();
+  if (!doc.exists) return null;
+  return { id: doc.id, ...doc.data() };
 }
 
 export async function updateSession(
@@ -160,26 +157,17 @@ export async function updateSession(
     completed_at?: string;
   }
 ) {
-  const { data, error } = await supabase
-    .from('generation_sessions')
-    .update(updates)
-    .eq('id', sessionId)
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  await db().collection('generationSessions').doc(sessionId).update(updates);
+  const doc = await db().collection('generationSessions').doc(sessionId).get();
+  return { id: doc.id, ...doc.data() };
 }
 
 export async function getSessions(workspaceId: string) {
-  const { data, error } = await supabase
-    .from('generation_sessions')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return data || [];
+  const snapshot = await db().collection('generationSessions')
+    .where('workspace_id', '==', workspaceId)
+    .orderBy('created_at', 'desc')
+    .get();
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
 // =============================================================================
@@ -200,45 +188,37 @@ export async function recordFileOperation(
     aiReasoning?: string;
   }
 ) {
-  const { data, error } = await supabase
-    .from('file_operations')
-    .insert({
-      workspace_id: workspaceId,
-      user_id: userId,
-      session_id: sessionId,
-      operation,
-      file_path: filePath,
-      previous_content: options?.previousContent,
-      new_content: options?.newContent,
-      previous_path: options?.previousPath,
-      ai_model: options?.aiModel,
-      ai_reasoning: options?.aiReasoning,
-      validated: false,
-      applied: false,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
+  const ref = await db().collection('fileOperations').add({
+    workspace_id: workspaceId,
+    user_id: userId,
+    session_id: sessionId,
+    operation,
+    file_path: filePath,
+    previous_content: options?.previousContent ?? null,
+    new_content: options?.newContent ?? null,
+    previous_path: options?.previousPath ?? null,
+    ai_model: options?.aiModel ?? null,
+    ai_reasoning: options?.aiReasoning ?? null,
+    validated: false,
+    applied: false,
+    created_at: new Date().toISOString(),
+  });
+  const doc = await ref.get();
+  return { id: doc.id, ...doc.data() };
 }
 
 export async function applyFileOperation(operationId: string) {
-  const { data, error } = await supabase
-    .rpc('apply_file_operation', { p_operation_id: operationId });
-
-  if (error) throw error;
-  return data;
+  await db().collection('fileOperations').doc(operationId).update({
+    applied: true,
+    validated: true,
+  });
 }
 
 export async function getOperationHistory(workspaceId: string, limit = 100) {
-  const { data, error } = await supabase
-    .from('file_operations')
-    .select('*')
-    .eq('workspace_id', workspaceId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  if (error) throw error;
-  return data || [];
+  const snapshot = await db().collection('fileOperations')
+    .where('workspace_id', '==', workspaceId)
+    .orderBy('created_at', 'desc')
+    .limit(limit)
+    .get();
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }

@@ -28,14 +28,7 @@ app.post('/:workspaceId/start', async (c) => {
     // Start preview server
     const previewUrl = await PreviewManager.start(workspaceId);
     
-    // Update workspace with preview URL
-    await db.supabase
-      .from('workspaces')
-      .update({ 
-        preview_url: previewUrl,
-        preview_status: 'running',
-      })
-      .eq('id', workspaceId);
+    await db.updateWorkspace(workspaceId, { preview_url: previewUrl, preview_status: 'running' });
 
     logger.info({ workspaceId, previewUrl }, 'Preview started');
     return c.json({ success: true, previewUrl });
@@ -60,14 +53,7 @@ app.post('/:workspaceId/stop', async (c) => {
     // Stop preview server
     await PreviewManager.stop(workspaceId);
     
-    // Update workspace
-    await db.supabase
-      .from('workspaces')
-      .update({ 
-        preview_url: null,
-        preview_status: 'stopped',
-      })
-      .eq('id', workspaceId);
+    await db.updateWorkspace(workspaceId, { preview_url: null, preview_status: 'stopped' });
 
     logger.info({ workspaceId }, 'Preview stopped');
     return c.json({ success: true });
@@ -92,14 +78,7 @@ app.post('/:workspaceId/restart', async (c) => {
     // Restart preview server
     const previewUrl = await PreviewManager.restart(workspaceId);
     
-    // Update workspace
-    await db.supabase
-      .from('workspaces')
-      .update({ 
-        preview_url: previewUrl,
-        preview_status: 'running',
-      })
-      .eq('id', workspaceId);
+    await db.updateWorkspace(workspaceId, { preview_url: previewUrl, preview_status: 'running' });
 
     logger.info({ workspaceId, previewUrl }, 'Preview restarted');
     return c.json({ success: true, previewUrl });

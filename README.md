@@ -13,7 +13,7 @@ This is the backend service that powers Buildable - a commercial-grade AI web ap
 │                                                                          │
 │   ┌──────────────────────────┐    ┌──────────────────────────────────┐ │
 │   │   FRONTEND (Read-Only)   │    │         BACKEND (Brain)          │ │
-│   │   Lovable-hosted UI      │◄───│   This Repository               │ │
+│   │   Buildable Labs Frontend      │◄───│   This Repository               │ │
 │   │                          │    │                                  │ │
 │   │   • Collect user ideas   │    │   • AI Orchestration            │ │
 │   │   • Show generation UI   │    │   • Staged Code Generation      │ │

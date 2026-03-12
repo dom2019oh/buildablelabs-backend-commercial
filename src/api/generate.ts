@@ -89,18 +89,11 @@ app.get('/session/:sessionId', async (c) => {
   const sessionId = c.req.param('sessionId');
 
   try {
-    const { data, error } = await db.supabase
-      .from('generation_sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .single();
-
-    if (error) throw error;
-    if (!data) {
+    const session = await db.getSession(sessionId);
+    if (!session) {
       return c.json({ error: 'Session not found' }, 404);
     }
-
-    return c.json({ session: data });
+    return c.json({ session });
   } catch (error) {
     logger.error({ error, sessionId }, 'Failed to get session');
     return c.json({ error: 'Failed to get session' }, 500);

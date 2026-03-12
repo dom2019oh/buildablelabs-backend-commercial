@@ -17,7 +17,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",
     "@google/generative-ai": "^0.21.0",
-    "@supabase/supabase-js": "^2.91.1",
     "bullmq": "^5.13.0",
     "dotenv": "^16.4.5",
     "execa": "^9.5.1",

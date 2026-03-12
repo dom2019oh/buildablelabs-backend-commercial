@@ -16,10 +16,6 @@ const envSchema = z.object({
   // Base64-encoded service account JSON from Firebase console
   FIREBASE_SERVICE_ACCOUNT_KEY: z.string().min(1),
 
-  // Supabase (for database operations)
-  SUPABASE_URL: z.string().url(),
-  SUPABASE_SERVICE_KEY: z.string().min(1),
-
   // AI Providers (at least one required)
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
