@@ -23,6 +23,7 @@ if (!admin.apps.length) {
 import { workspaceRoutes } from './api/workspace';
 import { generateRoutes } from './api/generate';
 import { previewRoutes } from './api/preview';
+import { creditRoutes } from './api/credits';
 
 // Services
 import { initializeQueue } from './queue/worker';
@@ -81,6 +82,7 @@ api.use('*', async (c, next) => {
 api.route('/workspace', workspaceRoutes);
 api.route('/generate', generateRoutes);
 api.route('/preview', previewRoutes);
+api.route('/credits', creditRoutes);
 
 app.route('/api', api);
 
