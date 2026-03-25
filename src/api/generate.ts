@@ -7,6 +7,7 @@ import { z } from 'zod';
 import * as db from '../db/queries';
 import { aiLogger as logger } from '../utils/logger';
 import { GenerationPipeline } from '../services/ai/pipeline';
+import { checkAndDeductCredits } from '../services/credits';
 
 const app = new Hono();
 
@@ -49,6 +50,12 @@ app.post('/:workspaceId', async (c) => {
     // Check if already generating
     if (workspace.status === 'generating') {
       return c.json({ error: 'Generation already in progress' }, 409);
+    }
+
+    // Check and deduct credits before starting
+    const creditResult = await checkAndDeductCredits(userId);
+    if (!creditResult.success) {
+      return c.json({ error: creditResult.message, code: 'INSUFFICIENT_CREDITS' }, 402);
     }
 
     // Create session
