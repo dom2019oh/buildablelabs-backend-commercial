@@ -24,6 +24,7 @@ import { workspaceRoutes } from './api/workspace';
 import { generateRoutes } from './api/generate';
 import { previewRoutes } from './api/preview';
 import { creditRoutes } from './api/credits';
+import { billingRoutes, billingWebhookRoutes } from './api/billing';
 
 // Services
 import { initializeQueue } from './queue/worker';
@@ -42,6 +43,9 @@ app.use('*', cors({
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
+
+// Stripe webhook — must be BEFORE auth middleware (raw body, no JWT)
+app.route('/api/billing/webhook', billingWebhookRoutes);
 
 // Health check (unauthenticated)
 app.get('/health', (c) => {
@@ -83,6 +87,7 @@ api.route('/workspace', workspaceRoutes);
 api.route('/generate', generateRoutes);
 api.route('/preview', previewRoutes);
 api.route('/credits', creditRoutes);
+api.route('/billing', billingRoutes);
 
 app.route('/api', api);
 

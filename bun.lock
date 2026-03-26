@@ -18,6 +18,7 @@
         "openai": "^4.70.0",
         "pino": "^9.5.0",
         "pino-pretty": "^11.3.0",
+        "stripe": "^21.0.0",
         "tree-kill": "^1.2.2",
         "zod": "^3.25.0",
       },
@@ -655,6 +656,8 @@
     "strip-final-newline": ["strip-final-newline@4.0.0", "", {}, "sha512-aulFJcD6YK8V1G7iRB5tigAP4TsHBZZrOV8pjV++zdUwmeV8uzbY7yn6h9MswN62adStNZFuCIx4haBnRuMDaw=="],
 
     "strip-json-comments": ["strip-json-comments@3.1.1", "", {}, "sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig=="],
+
+    "stripe": ["stripe@21.0.0", "", { "peerDependencies": { "@types/node": ">=18" }, "optionalPeers": ["@types/node"] }, "sha512-VlQ1QhjQAhmCgY3g3BgfZFLo8AkJw1r9zTrG4hdjSDX2AcwS5sPz4eHJG0zfzCO8zO/md0Xe+zrkxRqg604ZWA=="],
 
     "strnum": ["strnum@2.2.0", "", {}, "sha512-Y7Bj8XyJxnPAORMZj/xltsfo55uOiyHcU2tnAVzHUnSJR/KsEX+9RoDeXEnsXtl/CX4fAcrt64gZ13aGaWPeBg=="],
 

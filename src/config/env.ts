@@ -27,6 +27,11 @@ const envSchema = z.object({
   DEFAULT_ARCHITECT_MODEL: z.string().default('gpt-4o'),
   DEFAULT_CODER_MODEL: z.string().default('gpt-4o'),
   
+  // Stripe
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_REDIRECT_BASE: z.string().default('https://dashboard.buildablelabs.dev'),
+
   // Preview Server
   PREVIEW_BASE_PORT: z.coerce.number().default(3100),
   PREVIEW_HOST: z.string().default('localhost'),
