@@ -6,6 +6,7 @@
 
 import { Hono } from 'hono';
 import admin from 'firebase-admin';
+import { claimRateLimit } from '../utils/rateLimit';
 
 const app = new Hono();
 const FREE_DAILY_CREDITS = 5;
@@ -63,6 +64,13 @@ app.post('/initialize', async (c) => {
 // =============================================================================
 app.post('/claim', async (c) => {
   const userId = c.get('userId') as string;
+
+  // Rate limit: 5 requests per minute (server already enforces once-per-day, this stops hammering)
+  const rl = claimRateLimit(userId);
+  if (!rl.allowed) {
+    return c.json({ error: 'Too many requests', retryAfterMs: rl.retryAfterMs }, 429);
+  }
+
   const db = admin.firestore();
   const creditsRef = db.collection('userCredits').doc(userId);
 

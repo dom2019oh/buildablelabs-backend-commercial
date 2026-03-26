@@ -8,6 +8,7 @@ import * as db from '../db/queries';
 import { aiLogger as logger } from '../utils/logger';
 import { GenerationPipeline } from '../services/ai/pipeline';
 import { checkAndDeductCredits } from '../services/credits';
+import { generateRateLimit } from '../utils/rateLimit';
 
 const app = new Hono();
 
@@ -31,6 +32,12 @@ const generateSchema = z.object({
 app.post('/:workspaceId', async (c) => {
   const userId = c.get('userId');
   const workspaceId = c.req.param('workspaceId');
+
+  // Rate limit: 10 generation requests per minute per user
+  const rl = generateRateLimit(userId);
+  if (!rl.allowed) {
+    return c.json({ error: 'Too many requests', retryAfterMs: rl.retryAfterMs }, 429);
+  }
   const body = await c.req.json();
 
   const parsed = generateSchema.safeParse(body);
@@ -93,12 +100,16 @@ app.post('/:workspaceId', async (c) => {
 
 // Get session status
 app.get('/session/:sessionId', async (c) => {
+  const userId = c.get('userId');
   const sessionId = c.req.param('sessionId');
 
   try {
     const session = await db.getSession(sessionId);
     if (!session) {
       return c.json({ error: 'Session not found' }, 404);
+    }
+    if ((session as any).user_id !== userId) {
+      return c.json({ error: 'Forbidden' }, 403);
     }
     return c.json({ session });
   } catch (error) {
@@ -109,9 +120,18 @@ app.get('/session/:sessionId', async (c) => {
 
 // Cancel generation (if supported)
 app.post('/session/:sessionId/cancel', async (c) => {
+  const userId = c.get('userId');
   const sessionId = c.req.param('sessionId');
 
   try {
+    const session = await db.getSession(sessionId);
+    if (!session) {
+      return c.json({ error: 'Session not found' }, 404);
+    }
+    if ((session as any).user_id !== userId) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
     await db.updateSession(sessionId, {
       status: 'failed',
       error_message: 'Cancelled by user',
