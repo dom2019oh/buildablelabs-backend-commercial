@@ -17,6 +17,8 @@ if (!admin.apps.length) {
     Buffer.from(env.FIREBASE_SERVICE_ACCOUNT_KEY, 'base64').toString('utf8')
   );
   admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+  // Use REST transport instead of gRPC — required on Railway (gRPC port blocked)
+  admin.firestore().settings({ preferRest: true });
 }
 
 // Routes
