@@ -18,6 +18,10 @@ const app = new Hono();
 
 const generateSchema = z.object({
   prompt: z.string().min(1).max(10000),
+  mode: z.enum(['plan', 'architect', 'build']).default('build'),
+  projectId: z.string().optional(),
+  conversationHistory: z.array(z.object({ role: z.string(), content: z.string() })).optional(),
+  existingFiles: z.array(z.object({ path: z.string(), content: z.string() })).optional(),
   options: z.object({
     template: z.string().optional(),
     model: z.string().optional(),
@@ -45,7 +49,7 @@ app.post('/:workspaceId', async (c) => {
     return c.json({ error: 'Invalid request', details: parsed.error.flatten() }, 400);
   }
 
-  const { prompt, options } = parsed.data;
+  const { prompt, mode, options } = parsed.data;
 
   try {
     // Verify workspace ownership
@@ -78,6 +82,7 @@ app.post('/:workspaceId', async (c) => {
       userId,
       sessionId: session.id,
       prompt,
+      mode,
       options,
     });
 

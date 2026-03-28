@@ -25,6 +25,8 @@ import { generateRoutes } from './api/generate';
 import { previewRoutes } from './api/preview';
 import { creditRoutes } from './api/credits';
 import { billingRoutes, billingWebhookRoutes } from './api/billing';
+import { debugRoutes } from './api/debug';
+import { writeDebugLog } from './utils/debugLog';
 
 // Services
 import { initializeQueue } from './queue/worker';
@@ -46,6 +48,9 @@ app.use('*', cors({
 
 // Stripe webhook — must be BEFORE auth middleware (raw body, no JWT)
 app.route('/api/billing/webhook', billingWebhookRoutes);
+
+// Debug routes — key-protected, no JWT required
+app.route('/api/debug', debugRoutes);
 
 // Health check (unauthenticated)
 app.get('/health', (c) => {
@@ -80,6 +85,26 @@ api.use('*', async (c, next) => {
   }
 
   await next();
+});
+
+// Auto-log every 4xx/5xx to _debugLogs
+api.use('*', async (c, next) => {
+  await next();
+  const status = c.res.status;
+  if (status >= 400) {
+    const userId = c.get('userId') ?? null;
+    let body: Record<string, unknown> = {};
+    try { body = await c.res.clone().json(); } catch { /* non-JSON */ }
+    writeDebugLog({
+      type: status >= 500 ? 'backend_error' : 'backend_warn',
+      timestamp: new Date().toISOString(),
+      path: c.req.path,
+      status,
+      message: (body.error as string) ?? `HTTP ${status}`,
+      userId,
+      details: body,
+    });
+  }
 });
 
 // Mount routes

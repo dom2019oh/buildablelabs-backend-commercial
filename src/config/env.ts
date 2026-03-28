@@ -42,6 +42,9 @@ const envSchema = z.object({
   
   // Logging
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+
+  // Debug log endpoint secret (set in Railway)
+  DEBUG_SECRET: z.string().default('buildable-debug-2026'),
 });
 
 // Parse and validate environment
