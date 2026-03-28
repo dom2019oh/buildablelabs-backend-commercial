@@ -43,7 +43,7 @@ app.use('*', honoLogger());
 app.use('*', cors({
   origin: env.CORS_ORIGINS,
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type', 'Authorization', 'x-log-key'],
 }));
 
 // Stripe webhook — must be BEFORE auth middleware (raw body, no JWT)

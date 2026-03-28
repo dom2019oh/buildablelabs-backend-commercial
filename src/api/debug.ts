@@ -10,12 +10,13 @@ import { env } from '../config/env';
 
 const app = new Hono();
 
-// ── Key guard ────────────────────────────────────────────────────────────────
-const checkKey = (key: string | null) => key === env.DEBUG_SECRET;
+// ── Key guard — reads from X-Log-Key header ──────────────────────────────────
+const checkKey = (c: ReturnType<typeof app.get> extends never ? never : Parameters<Parameters<typeof app.get>[1]>[0]) =>
+  (c.req.header('x-log-key') ?? '') === env.DEBUG_SECRET;
 
-// ── GET /api/debug/logs?key=SECRET&limit=50 ──────────────────────────────────
+// ── GET /logs?limit=50  (key via X-Log-Key header) ───────────────────────────
 app.get('/logs', async (c) => {
-  if (!checkKey(c.req.query('key') ?? null)) {
+  if ((c.req.header('x-log-key') ?? '') !== env.DEBUG_SECRET) {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
@@ -54,9 +55,9 @@ app.post('/client-error', async (c) => {
   return c.json({ ok: true });
 });
 
-// ── DELETE /api/debug/logs?key=SECRET ────────────────────────────────────────
+// ── DELETE /logs  (key via X-Log-Key header) ─────────────────────────────────
 app.delete('/logs', async (c) => {
-  if (!checkKey(c.req.query('key') ?? null)) {
+  if ((c.req.header('x-log-key') ?? '') !== env.DEBUG_SECRET) {
     return c.json({ error: 'Forbidden' }, 403);
   }
 
