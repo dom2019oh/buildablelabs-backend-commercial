@@ -7,7 +7,7 @@
 
 import { z } from 'zod';
 import { aiLogger as logger } from '../../utils/logger';
-import { callAI, resolveModel, resolveProvider } from './providers';
+import { callAI, resolveModel } from './providers';
 import type { ProjectPlan } from './pipeline';
 
 // =============================================================================
@@ -41,8 +41,7 @@ export class Architect {
   private model: string;
 
   constructor(model?: string) {
-    const provider = resolveProvider();
-    this.model = model ?? resolveModel('architect', provider);
+    this.model = model ?? resolveModel('architect');
   }
 
   async createPlan(
@@ -126,7 +125,7 @@ Output ONLY valid JSON.`;
     const validated = botPlanSchema.parse(parsed);
 
     logger.info({
-      provider: response.provider,
+      model: response.model,
       filesPlanned: validated.files.length,
       language: validated.language,
       projectType: validated.projectType,

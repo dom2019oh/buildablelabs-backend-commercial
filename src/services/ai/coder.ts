@@ -3,10 +3,10 @@
 // =============================================================================
 // Generates individual bot files based on the architect's plan.
 // Supports Python (discord.py), JavaScript and TypeScript (discord.js v14).
-// Primary provider: Claude (Anthropic). Fallback: OpenAI.
+// Powered by Claude Sonnet 4.6.
 
 import { aiLogger as logger } from '../../utils/logger';
-import { callAI, resolveModel, resolveProvider } from './providers';
+import { callAI, resolveModel } from './providers';
 import type { ProjectPlan } from './pipeline';
 
 // =============================================================================
@@ -85,8 +85,7 @@ export class Coder {
   private model: string;
 
   constructor(model?: string) {
-    const provider = resolveProvider();
-    this.model = model ?? resolveModel('coder', provider);
+    this.model = model ?? resolveModel('coder');
   }
 
   async generateFile(
@@ -158,7 +157,7 @@ Generate the complete file content now. Output ONLY the raw file — no markdown
 
     logger.info({
       file: fileSpec.path,
-      provider: response.provider,
+      model: response.model,
       contentLength: content.length,
       inputTokens: response.inputTokens,
       outputTokens: response.outputTokens,
