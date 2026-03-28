@@ -1,9 +1,12 @@
 // =============================================================================
-// Validator Service - Validation & Repair Phase
+// Validator Service — AI-Powered Code Review
 // =============================================================================
-// Validates generated code and attempts auto-repair of common issues.
+// Uses Claude to review generated bot files for critical bugs and missing pieces.
+// Token-efficient: one pass over all files, outputs only what needs fixing.
 
+import { callAI } from './providers';
 import { aiLogger as logger } from '../../utils/logger';
+import { env } from '../../config/env';
 
 // =============================================================================
 // TYPES
@@ -16,7 +19,6 @@ interface ValidationFile {
 
 interface ValidationError {
   file: string;
-  line?: number;
   message: string;
   severity: 'error' | 'warning';
 }
@@ -40,157 +42,109 @@ interface ValidationResult {
 
 export class Validator {
   async validate(files: ValidationFile[]): Promise<ValidationResult> {
-    const errors: ValidationError[] = [];
-    const warnings: ValidationError[] = [];
-    const repairs: Repair[] = [];
-
-    for (const file of files) {
-      // Skip non-code files
-      if (!this.isCodeFile(file.file_path)) continue;
-
-      // Check for common issues
-      const fileErrors = this.validateFile(file);
-      errors.push(...fileErrors.filter(e => e.severity === 'error'));
-      warnings.push(...fileErrors.filter(e => e.severity === 'warning'));
-
-      // Check imports
-      const importIssues = this.validateImports(file, files);
-      errors.push(...importIssues);
-
-      // Attempt repairs
-      const repair = this.attemptRepair(file, fileErrors, files);
-      if (repair) {
-        repairs.push(repair);
-      }
+    if (files.length === 0) {
+      return { valid: true, errors: [], warnings: [], repairs: [] };
     }
 
-    logger.info({
-      totalFiles: files.length,
-      errors: errors.length,
-      warnings: warnings.length,
-      repairs: repairs.length,
-    }, 'Validation complete');
+    const codeFiles = files.filter(f => this.isCodeFile(f.file_path));
+    if (codeFiles.length === 0) {
+      return { valid: true, errors: [], warnings: [], repairs: [] };
+    }
 
-    return {
-      valid: errors.length === 0,
-      errors,
-      warnings,
-      repairs,
-    };
+    try {
+      const repairs = await this.aiReview(files);
+
+      logger.info({
+        totalFiles: files.length,
+        repairs: repairs.length,
+      }, 'AI validation complete');
+
+      return {
+        valid: repairs.length === 0,
+        errors: repairs.map(r => ({ file: r.filePath, message: r.reason, severity: 'error' as const })),
+        warnings: [],
+        repairs,
+      };
+    } catch (err) {
+      logger.warn({ err }, 'AI validation failed — skipping repairs');
+      return { valid: true, errors: [], warnings: [], repairs: [] };
+    }
   }
 
   private isCodeFile(filePath: string): boolean {
-    return /\.(ts|tsx|js|jsx|css|json)$/.test(filePath);
+    return /\.(py|js|ts|json|txt|env\.example)$/.test(filePath) ||
+           filePath === '.env.example' ||
+           filePath === 'requirements.txt' ||
+           filePath === 'package.json';
   }
 
-  private validateFile(file: ValidationFile): ValidationError[] {
-    const errors: ValidationError[] = [];
+  private async aiReview(files: ValidationFile[]): Promise<Repair[]> {
+    // Build a compact representation of all files
+    const filesSummary = files.map(f => {
+      // Truncate very large files for the review — we only need enough to spot bugs
+      const content = f.content.length > 3000
+        ? f.content.slice(0, 3000) + '\n... (truncated)'
+        : f.content;
+      return `### ${f.file_path}\n\`\`\`\n${content}\n\`\`\``;
+    }).join('\n\n');
 
-    // Check for basic syntax issues
-    if (file.file_path.endsWith('.tsx') || file.file_path.endsWith('.ts')) {
-      // Check for unmatched brackets
-      const openBrackets = (file.content.match(/{/g) || []).length;
-      const closeBrackets = (file.content.match(/}/g) || []).length;
-      if (openBrackets !== closeBrackets) {
-        errors.push({
-          file: file.file_path,
-          message: `Unmatched brackets: ${openBrackets} open, ${closeBrackets} close`,
-          severity: 'error',
-        });
-      }
+    const systemPrompt = `You are a senior Discord bot code reviewer. Your job is to find CRITICAL bugs in generated Discord bot files and return fixed versions.
 
-      // Check for console.log (warning)
-      if (file.content.includes('console.log')) {
-        errors.push({
-          file: file.file_path,
-          message: 'Contains console.log statements',
-          severity: 'warning',
-        });
-      }
+Only report and fix CRITICAL issues:
+- Missing \`async def setup(bot)\` at the bottom of cog files
+- Missing \`asyncio.run(main())\` or \`bot.run()\` in bot.py
+- Missing \`load_dotenv()\` in bot.py
+- Incorrect \`bot.load_extension()\` call format
+- Broken cog class structure (missing __init__, wrong inheritance)
+- Missing \`await\` on async calls
+- Missing \`if __name__ == '__main__':\` guard in bot.py
+- Invalid discord.py 2.x imports (e.g. using discord.py 1.x patterns)
+- Missing \`client.login()\` in discord.js entry files
+- requirements.txt missing essential packages (discord.py, python-dotenv)
+- .env.example missing BOT_TOKEN
 
-      // Check for 'any' type (warning)
-      if (file.content.includes(': any')) {
-        errors.push({
-          file: file.file_path,
-          message: 'Contains explicit any type',
-          severity: 'warning',
-        });
-      }
+DO NOT report: style issues, console.log warnings, type hints, comment quality, or anything subjective.
 
-      // Check for missing export
-      if (file.file_path.includes('/components/') && !file.content.includes('export')) {
-        errors.push({
-          file: file.file_path,
-          message: 'Component file has no exports',
-          severity: 'error',
-        });
-      }
-    }
-
-    return errors;
+Respond with ONLY a JSON array. If everything is correct, return [].
+If fixes are needed:
+[
+  {
+    "filePath": "path/to/file.py",
+    "content": "<complete corrected file content>",
+    "reason": "<one-line description of what was fixed>"
   }
+]
 
-  private validateImports(file: ValidationFile, allFiles: ValidationFile[]): ValidationError[] {
-    const errors: ValidationError[] = [];
-    const importRegex = /import\s+.*\s+from\s+['"]([^'"]+)['"]/g;
-    
-    let match;
-    while ((match = importRegex.exec(file.content)) !== null) {
-      const importPath = match[1];
-      
-      // Skip node_modules imports
-      if (!importPath.startsWith('.') && !importPath.startsWith('@/')) continue;
-      
-      // Check if local import exists
-      if (importPath.startsWith('@/')) {
-        const relativePath = importPath.replace('@/', 'src/');
-        const exists = allFiles.some(f => 
-          f.file_path === relativePath ||
-          f.file_path === `${relativePath}.ts` ||
-          f.file_path === `${relativePath}.tsx` ||
-          f.file_path === `${relativePath}/index.ts` ||
-          f.file_path === `${relativePath}/index.tsx`
-        );
-        
-        if (!exists) {
-          errors.push({
-            file: file.file_path,
-            message: `Import not found: ${importPath}`,
-            severity: 'warning', // Warning since it might be external
-          });
-        }
-      }
+Output ONLY the JSON array — no explanation, no markdown.`;
+
+    const response = await callAI({
+      system: systemPrompt,
+      messages: [{
+        role: 'user',
+        content: `Review these Discord bot files for critical bugs:\n\n${filesSummary}\n\nReturn a JSON array of repairs needed, or [] if everything looks correct.`,
+      }],
+      model: env.DEFAULT_CODER_MODEL,
+      maxTokens: 8000,
+      temperature: 0.1,
+    });
+
+    let raw = response.content.trim();
+    // Strip markdown fences if present
+    if (raw.startsWith('```')) {
+      raw = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
     }
+    // Find JSON array
+    const arrayStart = raw.indexOf('[');
+    if (arrayStart > 0) raw = raw.slice(arrayStart);
 
-    return errors;
-  }
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
 
-  private attemptRepair(
-    file: ValidationFile,
-    errors: ValidationError[],
-    allFiles: ValidationFile[]
-  ): Repair | null {
-    if (errors.length === 0) return null;
-
-    let content = file.content;
-    let repaired = false;
-    const reasons: string[] = [];
-
-    // Add missing React import for TSX files
-    if (file.file_path.endsWith('.tsx') && !content.includes("from 'react'")) {
-      content = `import React from 'react';\n${content}`;
-      repaired = true;
-      reasons.push('Added missing React import');
-    }
-
-    if (repaired) {
-      return {
-        filePath: file.file_path,
-        content,
-        reason: reasons.join('; '),
-      };
-    }
-
-    return null;
+    return parsed.filter((r: unknown) =>
+      r &&
+      typeof r === 'object' &&
+      typeof (r as Record<string, unknown>).filePath === 'string' &&
+      typeof (r as Record<string, unknown>).content === 'string'
+    ) as Repair[];
   }
 }

@@ -1,9 +1,8 @@
 // =============================================================================
 // Architect Service — Discord Bot Planning Phase
 // =============================================================================
-// Converts a plain-English bot description into a structured build plan:
-// language, files, commands, intents, and dependencies.
-// No code is generated here — only planning.
+// Converts a plain-English bot description into a structured build plan.
+// Powered by Claude Sonnet 4.6.
 
 import { z } from 'zod';
 import { aiLogger as logger } from '../../utils/logger';
@@ -27,10 +26,9 @@ const botPlanSchema = z.object({
   commands: z.array(z.object({
     name: z.string(),
     description: z.string(),
-    type: z.enum(['prefix', 'slash']).default('prefix'),
+    type: z.enum(['prefix', 'slash', 'both']).default('prefix'),
   })).optional(),
   intents: z.array(z.string()).optional(),
-  routes: z.array(z.string()).optional(),
 });
 
 // =============================================================================
@@ -49,60 +47,83 @@ export class Architect {
     existingFiles: Array<{ file_path: string; content: string }>
   ): Promise<ProjectPlan> {
 
-    const systemPrompt = `You are an expert Discord bot architect. Your job is to analyse a user's plain-English bot request and produce a structured JSON build plan.
+    const systemPrompt = `You are a senior Discord bot architect with deep expertise in discord.py 2.x (Python) and discord.js v14 (JavaScript/TypeScript). You design production-quality Discord bots that are well-structured, reliable, and maintainable.
 
-You must output ONLY a valid JSON object — no markdown, no explanation — with this structure:
+Your job: analyse the user's request and output a JSON build plan. Output ONLY valid JSON — no markdown fences, no explanation, nothing else.
 
+JSON structure:
 {
-  "projectType": "music-bot" | "moderation-bot" | "economy-bot" | "leveling-bot" | "ticket-bot" | "utility-bot" | "welcome-bot" | "custom-bot",
+  "projectType": "<see types below>",
   "language": "python" | "javascript" | "typescript",
-  "description": "Concise description of what the bot does",
+  "description": "<concise description of what the bot does>",
   "files": [
     {
-      "path": "bot.py",
-      "purpose": "Main entry point — loads cogs, sets up intents, runs the bot",
-      "dependencies": []
-    },
-    {
-      "path": "cogs/music.py",
-      "purpose": "Music cog — play, queue, skip, shuffle, nowplaying commands",
-      "dependencies": ["bot.py"]
+      "path": "<relative file path>",
+      "purpose": "<what this file does and why it exists>",
+      "dependencies": ["<other file paths this file imports from>"]
     }
   ],
-  "dependencies": ["discord.py", "yt-dlp", "python-dotenv"],
+  "dependencies": ["<pip package or npm package>"],
   "commands": [
-    { "name": "play",  "description": "Play a song from YouTube", "type": "prefix" },
-    { "name": "skip",  "description": "Skip current track",        "type": "prefix" }
+    { "name": "<command name>", "description": "<what it does>", "type": "prefix" | "slash" | "both" }
   ],
-  "intents": ["GUILDS", "GUILD_MESSAGES", "GUILD_VOICE_STATES", "MESSAGE_CONTENT"]
+  "intents": ["<Discord intent names required>"]
 }
 
-Language selection rules:
-- Default to Python (discord.py) unless the user specifically requests JavaScript or TypeScript
-- For Python: use cogs/extensions per feature area, python-dotenv for config
-- For JavaScript/TypeScript: use discord.js v14, separate command files in /commands
+Project types: "moderation-bot" | "music-bot" | "economy-bot" | "leveling-bot" | "ticket-bot" | "utility-bot" | "welcome-bot" | "games-bot" | "logging-bot" | "role-bot" | "reminder-bot" | "poll-bot" | "stats-bot" | "custom-bot"
 
-File structure rules (Python):
-- bot.py            — entry point, loads cogs, configures intents
-- cogs/<feature>.py — one cog per major feature (music, moderation, economy, etc.)
-- utils/helpers.py  — shared utility functions if needed
-- .env.example      — BOT_TOKEN, PREFIX, GUILD_ID placeholders
-- requirements.txt  — all pip dependencies
+--- LANGUAGE SELECTION ---
+Default to Python (discord.py 2.x) unless the user specifically asks for JavaScript or TypeScript.
 
-File structure rules (JavaScript/TypeScript):
-- index.js/ts              — entry point, loads commands and events
-- commands/<name>.js/ts    — one file per slash/prefix command
-- events/<event>.js/ts     — event handlers (ready, messageCreate, etc.)
-- utils/helpers.js/ts      — shared utilities
-- .env.example             — BOT_TOKEN, CLIENT_ID, GUILD_ID
-- package.json             — with all npm dependencies
+--- REQUIRED FILE SET (Python) ---
+Every Python bot MUST include ALL of these files:
+1. bot.py               — entry point: intents, cog loading, on_ready, error handler, asyncio.run(main())
+2. cogs/<feature>.py    — one cog file per major feature group (NOT one file per command)
+3. utils/helpers.py     — shared utility functions, embed builders, formatters (only if needed)
+4. config.py            — constants, colour palette, embed footers, timeout values
+5. requirements.txt     — all pip dependencies with minimum versions
+6. .env.example         — BOT_TOKEN, PREFIX, GUILD_ID and any other secrets with placeholder values
+
+For a bot with multiple features: group related commands into one cog (e.g. all moderation in cogs/moderation.py, all economy in cogs/economy.py).
+
+--- REQUIRED FILE SET (JavaScript/TypeScript) ---
+1. src/index.js/ts          — entry point: client setup, event loading, command registration, client.login()
+2. src/commands/<name>.js/ts — one file per slash command
+3. src/events/<event>.js/ts  — event handlers (ready, interactionCreate, messageCreate, etc.)
+4. src/utils/helpers.js/ts   — shared utilities
+5. package.json              — name, version, main, scripts.start, all dependencies
+6. .env.example              — BOT_TOKEN, CLIENT_ID, GUILD_ID
+
+--- INTENT SELECTION ---
+Only include intents the bot actually needs:
+- GUILDS — always required (server/channel info)
+- GUILD_MESSAGES + MESSAGE_CONTENT — needed to read message content (prefix commands, auto-mod)
+- GUILD_MEMBERS — needed to access member lists, join/leave events (privileged)
+- GUILD_VOICE_STATES — needed for voice/music bots
+- GUILD_MESSAGE_REACTIONS — needed to react to reactions
+- DIRECT_MESSAGES — needed for DM support
+- GUILD_PRESENCES — needed to see online/offline status (privileged, avoid unless necessary)
+
+--- DEPENDENCIES (Python) ---
+Always include: discord.py>=2.3.0, python-dotenv>=1.0.0
+Music bots add: yt-dlp>=2024.1.0, PyNaCl>=1.5.0
+Database bots add: aiosqlite>=0.19.0 or motor>=3.3.0 (MongoDB async)
+Economy/leveling bots add: aiosqlite>=0.19.0
+
+--- QUALITY RULES ---
+- Plan for real Discord bot functionality — not toy examples
+- Each cog should be substantial (multiple related commands), not a single command per file
+- Group commands logically: all music commands in one cog, all moderation in one cog
+- Config.py centralises magic numbers and colours so they're easy to customise
+- requirements.txt must be complete — the bot must run with just pip install -r requirements.txt
+- .env.example must list every environment variable the code uses
 
 Existing files in this project:
 ${existingFiles.map(f => f.file_path).join('\n') || 'None (new project)'}
 
 Output ONLY valid JSON.`;
 
-    const userPrompt = `Create a Discord bot build plan for:\n\n${prompt}`;
+    const userPrompt = `Plan a Discord bot for this request:\n\n${prompt}`;
 
     logger.info({ model: this.model, promptLength: prompt.length }, 'Creating Discord bot plan');
 
@@ -111,15 +132,18 @@ Output ONLY valid JSON.`;
       messages: [{ role: 'user', content: userPrompt }],
       model: this.model,
       maxTokens: 4000,
-      temperature: 0.4,
+      temperature: 0.2,
       jsonMode: true,
     });
 
-    // Strip any accidental markdown code fences
+    // Strip any accidental markdown fences
     let raw = response.content.trim();
     if (raw.startsWith('```')) {
       raw = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
     }
+    // Find the first { to handle any leading text
+    const jsonStart = raw.indexOf('{');
+    if (jsonStart > 0) raw = raw.slice(jsonStart);
 
     const parsed = JSON.parse(raw);
     const validated = botPlanSchema.parse(parsed);

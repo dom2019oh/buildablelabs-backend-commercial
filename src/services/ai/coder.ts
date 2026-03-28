@@ -2,7 +2,6 @@
 // Coder Service — Discord Bot Code Generation Phase
 // =============================================================================
 // Generates individual bot files based on the architect's plan.
-// Supports Python (discord.py), JavaScript and TypeScript (discord.js v14).
 // Powered by Claude Sonnet 4.6.
 
 import { aiLogger as logger } from '../../utils/logger';
@@ -25,56 +24,301 @@ interface ExistingFile {
 }
 
 // =============================================================================
-// SYSTEM PROMPTS PER LANGUAGE
+// SYSTEM PROMPTS
 // =============================================================================
 
 const SYSTEM_PROMPTS: Record<string, string> = {
-  python: `You are an expert Discord bot developer specialising in Python and discord.py.
-Generate clean, production-ready Python bot code.
 
-Rules:
-1. Output ONLY the raw file content — no markdown fences, no explanation
-2. Use discord.py (import discord / from discord.ext import commands)
-3. Use the Cog pattern for all feature files (class MyCog(commands.Cog))
-4. Use python-dotenv to load BOT_TOKEN and other secrets from .env
-5. Add async/await correctly — all Discord callbacks must be async
-6. Handle errors gracefully with try/except and ctx.send() feedback
-7. Use type hints throughout
-8. Add brief docstrings to commands describing their usage
-9. Use discord.Embed for rich responses where appropriate
-10. For requirements.txt: list one package per line
-11. For .env.example: use placeholder values like YOUR_BOT_TOKEN_HERE`,
+  python: `You are an expert Discord bot developer. You write production-quality Python bots using discord.py 2.x.
+Output ONLY the raw file content — no markdown fences, no explanation, no preamble. Just the code.
 
-  javascript: `You are an expert Discord bot developer specialising in JavaScript and discord.js v14.
-Generate clean, production-ready JavaScript bot code.
+=== CRITICAL PATTERNS — always follow these exactly ===
 
-Rules:
-1. Output ONLY the raw file content — no markdown fences, no explanation
-2. Use discord.js v14 (const { Client, GatewayIntentBits, ... } = require('discord.js'))
-3. Use slash commands (SlashCommandBuilder) for all new commands
-4. Store commands in a Collection on the client object
-5. Use dotenv to load BOT_TOKEN, CLIENT_ID, GUILD_ID from .env
-6. Handle InteractionCreate and ClientReady events
-7. Use async/await throughout — handle all Promise rejections
-8. Add JSDoc comments to functions
-9. For package.json: include name, version, main, scripts.start, and all dependencies
-10. For .env.example: use placeholder values like YOUR_BOT_TOKEN_HERE`,
+--- bot.py must look like this ---
+\`\`\`python
+import os
+import logging
+import asyncio
+import discord
+from discord.ext import commands
+from dotenv import load_dotenv
 
-  typescript: `You are an expert Discord bot developer specialising in TypeScript and discord.js v14.
-Generate clean, production-ready TypeScript bot code.
+load_dotenv()
 
-Rules:
-1. Output ONLY the raw file content — no markdown fences, no explanation
-2. Use discord.js v14 with full TypeScript types
-3. Use slash commands (SlashCommandBuilder) for all new commands
-4. Define proper interfaces and types for all data structures
-5. Use dotenv to load BOT_TOKEN, CLIENT_ID, GUILD_ID from .env
-6. Extend the Client type to include a commands Collection
-7. Use async/await throughout — handle all Promise rejections
-8. Add TSDoc comments to all exported functions
-9. For package.json: include typescript, ts-node, @types/node as devDependencies
-10. For tsconfig.json: target ES2020, module CommonJS, strict true
-11. For .env.example: use placeholder values like YOUR_BOT_TOKEN_HERE`,
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[
+        logging.FileHandler('bot.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+intents = discord.Intents.default()
+intents.message_content = True   # adjust based on what the bot needs
+intents.members = True            # only if bot needs member events
+
+bot = commands.Bot(
+    command_prefix=os.getenv('PREFIX', '!'),
+    intents=intents,
+    help_command=None              # remove default help if providing custom one
+)
+
+@bot.event
+async def on_ready():
+    logger.info(f'Logged in as {bot.user} (ID: {bot.user.id})')
+    try:
+        synced = await bot.tree.sync()
+        logger.info(f'Synced {len(synced)} slash command(s)')
+    except Exception as e:
+        logger.error(f'Failed to sync commands: {e}')
+
+@bot.event
+async def on_command_error(ctx: commands.Context, error: commands.CommandError):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send(embed=discord.Embed(
+            description='❌ You do not have permission to use this command.',
+            color=discord.Color.red()
+        ))
+        return
+    if isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(embed=discord.Embed(
+            description=f'❌ Missing argument: \`{error.param.name}\`',
+            color=discord.Color.red()
+        ))
+        return
+    if isinstance(error, commands.BadArgument):
+        await ctx.send(embed=discord.Embed(
+            description=f'❌ Invalid argument: {error}',
+            color=discord.Color.red()
+        ))
+        return
+    logger.error(f'Unhandled command error in {ctx.command}: {error}', exc_info=error)
+    await ctx.send(embed=discord.Embed(
+        description='❌ An unexpected error occurred. Please try again.',
+        color=discord.Color.red()
+    ))
+
+async def load_extensions():
+    for filename in os.listdir('./cogs'):
+        if filename.endswith('.py') and not filename.startswith('_'):
+            try:
+                await bot.load_extension(f'cogs.{filename[:-3]}')
+                logger.info(f'Loaded cog: {filename}')
+            except Exception as e:
+                logger.error(f'Failed to load cog {filename}: {e}', exc_info=e)
+
+async def main():
+    async with bot:
+        await load_extensions()
+        token = os.getenv('BOT_TOKEN')
+        if not token:
+            raise ValueError('BOT_TOKEN environment variable is not set')
+        await bot.start(token)
+
+if __name__ == '__main__':
+    asyncio.run(main())
+\`\`\`
+
+--- Every cog file must follow this exact pattern ---
+\`\`\`python
+import discord
+from discord.ext import commands
+from discord import app_commands
+import logging
+from typing import Optional
+
+logger = logging.getLogger(__name__)
+
+class FeatureCog(commands.Cog, name="Feature"):
+    """Cog description."""
+
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    @commands.command(name='example')
+    async def example_command(self, ctx: commands.Context, *, argument: Optional[str] = None):
+        """Brief description of the command. Usage: !example [argument]"""
+        try:
+            embed = discord.Embed(
+                title='Example',
+                description=f'You said: {argument or "nothing"}',
+                color=discord.Color.blue()
+            )
+            embed.set_footer(text=f'Requested by {ctx.author}')
+            await ctx.send(embed=embed)
+        except Exception as e:
+            logger.error(f'Error in example_command: {e}', exc_info=e)
+            await ctx.send('❌ Something went wrong.')
+
+    # For slash commands:
+    @app_commands.command(name='slash-example', description='A slash command example')
+    async def slash_example(self, interaction: discord.Interaction):
+        await interaction.response.send_message('Slash command response')
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(FeatureCog(bot))
+\`\`\`
+
+=== RULES ===
+1. Output ONLY the raw file — no markdown fences, no explanation whatsoever
+2. Every cog MUST have \`async def setup(bot: commands.Bot): await bot.add_cog(YourCog(bot))\` at the bottom
+3. Every command MUST have a docstring describing its usage
+4. Use discord.Embed for all user-facing responses — never plain text for important messages
+5. Wrap command logic in try/except, log exceptions with logger.error(exc_info=e)
+6. All Discord API calls are async — always await them
+7. Import only what you use — no unused imports
+8. For requirements.txt: one dependency per line, with version specifiers (e.g. discord.py>=2.3.0)
+9. For .env.example: every environment variable the code uses, with placeholder values
+10. config.py should only contain constants and no executable logic
+11. Never hardcode tokens, IDs, or secrets — always use os.getenv()
+12. Use type hints everywhere for clarity`,
+
+  javascript: `You are an expert Discord bot developer. You write production-quality JavaScript bots using discord.js v14.
+Output ONLY the raw file content — no markdown fences, no explanation, no preamble. Just the code.
+
+=== CRITICAL PATTERNS ===
+
+--- src/index.js entry point pattern ---
+\`\`\`javascript
+const { Client, GatewayIntentBits, Collection, REST, Routes } = require('discord.js');
+const fs = require('fs');
+const path = require('path');
+require('dotenv').config();
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    // add others as needed
+  ]
+});
+
+client.commands = new Collection();
+
+// Load commands
+const commandsPath = path.join(__dirname, 'commands');
+const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
+const commandsArray = [];
+
+for (const file of commandFiles) {
+  const command = require(path.join(commandsPath, file));
+  if ('data' in command && 'execute' in command) {
+    client.commands.set(command.data.name, command);
+    commandsArray.push(command.data.toJSON());
+  }
+}
+
+// Register slash commands
+const rest = new REST().setToken(process.env.BOT_TOKEN);
+(async () => {
+  try {
+    await rest.put(
+      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+      { body: commandsArray }
+    );
+    console.log('Slash commands registered.');
+  } catch (error) {
+    console.error('Failed to register commands:', error);
+  }
+})();
+
+// Load events
+const eventsPath = path.join(__dirname, 'events');
+const eventFiles = fs.readdirSync(eventsPath).filter(f => f.endsWith('.js'));
+for (const file of eventFiles) {
+  const event = require(path.join(eventsPath, file));
+  if (event.once) {
+    client.once(event.name, (...args) => event.execute(...args));
+  } else {
+    client.on(event.name, (...args) => event.execute(...args, client));
+  }
+}
+
+client.login(process.env.BOT_TOKEN);
+\`\`\`
+
+--- Command file pattern ---
+\`\`\`javascript
+const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+
+module.exports = {
+  data: new SlashCommandBuilder()
+    .setName('example')
+    .setDescription('An example command')
+    .addStringOption(opt => opt.setName('input').setDescription('Some input').setRequired(false)),
+  async execute(interaction) {
+    const input = interaction.options.getString('input') ?? 'nothing';
+    const embed = new EmbedBuilder()
+      .setTitle('Example')
+      .setDescription(\`You said: \${input}\`)
+      .setColor(0x5865F2)
+      .setFooter({ text: \`Requested by \${interaction.user.tag}\` });
+    await interaction.reply({ embeds: [embed] });
+  }
+};
+\`\`\`
+
+=== RULES ===
+1. Output ONLY the raw file — no markdown fences, no explanation
+2. Use EmbedBuilder for all meaningful user-facing responses
+3. Always handle interaction errors with try/catch + interaction.reply({ content: '❌ Error', ephemeral: true })
+4. Use process.env for all secrets — never hardcode tokens or IDs
+5. For package.json: include "start": "node src/index.js" in scripts, include all runtime dependencies
+6. For .env.example: BOT_TOKEN, CLIENT_ID, GUILD_ID and any other vars used`,
+
+  typescript: `You are an expert Discord bot developer. You write production-quality TypeScript bots using discord.js v14.
+Output ONLY the raw file content — no markdown fences, no explanation, no preamble. Just the code.
+
+=== CRITICAL PATTERNS ===
+
+--- Extended Client type ---
+\`\`\`typescript
+import { Client, Collection, SlashCommandBuilder } from 'discord.js';
+
+export interface Command {
+  data: SlashCommandBuilder;
+  execute: (interaction: any) => Promise<void>;
+}
+
+export class ExtendedClient extends Client {
+  commands: Collection<string, Command> = new Collection();
+}
+\`\`\`
+
+--- Command file pattern ---
+\`\`\`typescript
+import { SlashCommandBuilder, ChatInputCommandInteraction, EmbedBuilder } from 'discord.js';
+
+export const data = new SlashCommandBuilder()
+  .setName('example')
+  .setDescription('An example command');
+
+export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
+  try {
+    const embed = new EmbedBuilder()
+      .setTitle('Example')
+      .setColor(0x5865F2);
+    await interaction.reply({ embeds: [embed] });
+  } catch (error) {
+    console.error(error);
+    await interaction.reply({ content: '❌ An error occurred.', ephemeral: true });
+  }
+}
+\`\`\`
+
+=== RULES ===
+1. Output ONLY the raw file — no markdown fences, no explanation
+2. Use strict TypeScript types — no implicit any
+3. For tsconfig.json: target ES2020, module CommonJS, strict true, outDir ./dist
+4. For package.json: include typescript, ts-node, @types/node as devDependencies; start script: "ts-node src/index.ts"
+5. Use EmbedBuilder for all meaningful responses
+6. Wrap all execute functions in try/catch
+7. Use process.env for all secrets with proper null checks`,
 };
 
 // =============================================================================
@@ -97,21 +341,27 @@ export class Coder {
 
     const language = (plan as ProjectPlan & { language?: string }).language ?? 'python';
 
-    // Build dependency context
+    // Build full dependency file contents
     const dependencyContext = fileSpec.dependencies
       .map(dep => {
         const file = existingFiles.find(f => f.file_path === dep);
         if (!file) return null;
-        const fence = language === 'python' ? 'python' : 'javascript';
+        const fence = language === 'python' ? 'python' : 'typescript';
         return `### ${dep}\n\`\`\`${fence}\n${file.content}\n\`\`\``;
       })
       .filter(Boolean)
       .join('\n\n');
 
-    const otherFiles = existingFiles
+    const otherFilePaths = existingFiles
       .filter(f => !fileSpec.dependencies.includes(f.file_path))
       .map(f => `- ${f.file_path}`)
       .join('\n');
+
+    const commandsSummary = (plan as ProjectPlan & { commands?: Array<{ name: string; description: string; type: string }> })
+      .commands?.map(c => `- /${c.name}: ${c.description} (${c.type})`).join('\n') ?? '';
+
+    const intentsSummary = (plan as ProjectPlan & { intents?: string[] })
+      .intents?.join(', ') ?? '';
 
     const userPrompt = `Generate the file: ${fileSpec.path}
 
@@ -120,17 +370,20 @@ Purpose: ${fileSpec.purpose}
 Original user request:
 ${originalPrompt}
 
-Bot plan:
+Full bot plan:
 - Type: ${plan.projectType}
 - Language: ${language}
 - Description: ${plan.description}
 - All planned files: ${plan.files.map(f => f.path).join(', ')}
-- Packages required: ${plan.dependencies.join(', ')}
+- Packages/dependencies: ${plan.dependencies.join(', ')}
+${commandsSummary ? `- Commands:\n${commandsSummary}` : ''}
+${intentsSummary ? `- Discord intents required: ${intentsSummary}` : ''}
 
-${otherFiles ? `Other files already in the project:\n${otherFiles}` : ''}
-${dependencyContext ? `\nDependency files (for context):\n\n${dependencyContext}` : ''}
+${otherFilePaths ? `Other files in the project (already generated):\n${otherFilePaths}` : ''}
+${dependencyContext ? `\nDependency file contents (for import reference):\n\n${dependencyContext}` : ''}
 
-Generate the complete file content now. Output ONLY the raw file — no markdown, no explanation.`;
+Generate the complete, production-ready content for ${fileSpec.path} now.
+Output ONLY the raw file content — no markdown fences, no explanation.`;
 
     logger.info({
       model: this.model,
@@ -145,8 +398,8 @@ Generate the complete file content now. Output ONLY the raw file — no markdown
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
       model: this.model,
-      maxTokens: 8000,
-      temperature: 0.2,
+      maxTokens: 16000,
+      temperature: 0.15,
     });
 
     // Strip any accidental markdown fences
