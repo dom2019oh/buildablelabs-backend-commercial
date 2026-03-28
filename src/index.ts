@@ -49,8 +49,8 @@ app.use('*', cors({
 // Stripe webhook — must be BEFORE auth middleware (raw body, no JWT)
 app.route('/api/billing/webhook', billingWebhookRoutes);
 
-// Debug routes — key-protected, no JWT required
-app.route('/api/debug', debugRoutes);
+// Internal log routes — key-protected, no JWT required
+app.route('/api/internal/logs', debugRoutes);
 
 // Health check (unauthenticated)
 app.get('/health', (c) => {
