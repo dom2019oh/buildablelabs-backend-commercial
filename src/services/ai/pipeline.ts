@@ -100,7 +100,7 @@ export class GenerationPipeline {
 
     await db.updateSession(this.sessionId, { status: 'planning' });
 
-    const architect = new Architect(env.DEFAULT_ARCHITECT_MODEL);
+    const architect = new Architect(this.options?.model ?? env.DEFAULT_ARCHITECT_MODEL);
     const existingFiles = await db.getWorkspaceFiles(this.workspaceId);
 
     const plan = await architect.createPlan(this.prompt, existingFiles);
@@ -136,7 +136,7 @@ export class GenerationPipeline {
 
     await db.updateSession(this.sessionId, { status: 'planning' });
 
-    const architect = new Architect(env.DEFAULT_ARCHITECT_MODEL);
+    const architect = new Architect(this.options?.model ?? env.DEFAULT_ARCHITECT_MODEL);
     const existingFiles = await db.getWorkspaceFiles(this.workspaceId);
 
     const plan = await architect.createPlan(this.prompt, existingFiles);
@@ -177,7 +177,7 @@ export class GenerationPipeline {
 
     await db.updateSession(this.sessionId, { status: 'planning' });
 
-    const architect = new Architect(env.DEFAULT_ARCHITECT_MODEL);
+    const architect = new Architect(this.options?.model ?? env.DEFAULT_ARCHITECT_MODEL);
     const existingFiles = await db.getWorkspaceFiles(this.workspaceId);
 
     const plan = await architect.createPlan(this.prompt, existingFiles);
@@ -203,7 +203,7 @@ export class GenerationPipeline {
 
     await db.updateSession(this.sessionId, { status: 'generating' });
 
-    const coder = new Coder(env.DEFAULT_CODER_MODEL);
+    const coder = new Coder(this.options?.model ?? env.DEFAULT_CODER_MODEL);
     let filesGenerated = 0;
 
     for (const fileSpec of plan.files) {
@@ -227,7 +227,7 @@ export class GenerationPipeline {
           {
             previousContent: existingFile?.content,
             newContent: content,
-            aiModel: env.DEFAULT_CODER_MODEL,
+            aiModel: this.options?.model ?? env.DEFAULT_CODER_MODEL,
             aiReasoning: fileSpec.purpose,
           }
         );

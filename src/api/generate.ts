@@ -7,7 +7,7 @@ import { z } from 'zod';
 import * as db from '../db/queries';
 import { aiLogger as logger } from '../utils/logger';
 import { GenerationPipeline } from '../services/ai/pipeline';
-import { checkAndDeductCredits } from '../services/credits';
+import { checkAndDeductCredits, type ActionType } from '../services/credits';
 import { generateRateLimit } from '../utils/rateLimit';
 
 const app = new Hono();
@@ -63,15 +63,35 @@ app.post('/:workspaceId', async (c) => {
       return c.json({ error: 'Generation already in progress' }, 409);
     }
 
-    // Check and deduct credits before starting
-    const creditResult = await checkAndDeductCredits(userId);
+    // Determine action type for credit deduction
+    let actionType: ActionType;
+    if (mode === 'plan') {
+      actionType = 'plan_mode';
+    } else if (mode === 'architect') {
+      actionType = 'architect_mode';
+    } else {
+      // build mode: full_build if no code files exist yet, edit_iterate otherwise
+      const existingFiles = await db.getWorkspaceFiles(workspaceId);
+      const hasCodeFiles = existingFiles.some(f => /\.(py|js|ts)$/.test(f.file_path));
+      actionType = hasCodeFiles ? 'edit_iterate' : 'full_build';
+    }
+
+    // Check and deduct credits before starting — also returns the model for this plan
+    const creditResult = await checkAndDeductCredits(userId, actionType);
     if (!creditResult.success) {
       return c.json({ error: creditResult.message, code: 'INSUFFICIENT_CREDITS' }, 402);
     }
 
     // Create session
     const session = await db.createSession(workspaceId, userId, prompt);
-    logger.info({ sessionId: session.id, workspaceId, prompt: prompt.slice(0, 100) }, 'Generation started');
+    logger.info({
+      sessionId: session.id,
+      workspaceId,
+      actionType,
+      model: creditResult.model,
+      planType: creditResult.planType,
+      prompt: prompt.slice(0, 100),
+    }, 'Generation started');
 
     // Update workspace status
     await db.updateWorkspaceStatus(workspaceId, 'generating');
@@ -83,7 +103,10 @@ app.post('/:workspaceId', async (c) => {
       sessionId: session.id,
       prompt,
       mode,
-      options,
+      options: {
+        ...options,
+        model: creditResult.model,  // plan-based model selection
+      },
     });
 
     // Start pipeline in background (don't await)

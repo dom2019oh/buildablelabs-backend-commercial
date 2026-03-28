@@ -9,7 +9,7 @@ import admin from 'firebase-admin';
 import { claimRateLimit } from '../utils/rateLimit';
 
 const app = new Hono();
-const FREE_DAILY_CREDITS = 5;
+const FREE_DAILY_CREDITS = 3;
 
 function getUTCDateString(date: Date = new Date()): string {
   return date.toISOString().slice(0, 10); // "YYYY-MM-DD"

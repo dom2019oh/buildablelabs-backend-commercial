@@ -1,11 +1,49 @@
 // =============================================================================
-// Credit Service — checks and deducts credits before generation
+// Credit Service — action-based credit deduction with plan-model routing
 // Uses Firebase Admin SDK (server-side authority).
 // =============================================================================
 
 import admin from 'firebase-admin';
 
-const GENERATION_COST = 1;
+// =============================================================================
+// TYPES
+// =============================================================================
+
+export type ActionType =
+  | 'full_build'
+  | 'edit_iterate'
+  | 'plan_mode'
+  | 'architect_mode'
+  | 'mermaid_diagram'
+  | 'file_repair'
+  | 'validate_review'
+  | 'clarify'
+  | 'chat';
+
+// Credit cost per action (0 = free, no deduction)
+const ACTION_COSTS: Record<ActionType, number> = {
+  full_build:      2,
+  edit_iterate:    1,
+  plan_mode:       1,
+  architect_mode:  1,
+  mermaid_diagram: 1,
+  file_repair:     1,
+  validate_review: 1,
+  clarify:         0,
+  chat:            0,
+};
+
+// Model to use per plan — Haiku for free/lite (7× cheaper), Sonnet for pro/max
+const PLAN_MODEL: Record<string, string> = {
+  free: 'claude-haiku-4-5-20251001',
+  lite: 'claude-haiku-4-5-20251001',
+  pro:  'claude-sonnet-4-6',
+  max:  'claude-sonnet-4-6',
+};
+
+// =============================================================================
+// HELPERS
+// =============================================================================
 
 function getUTCDateString(date: Date = new Date()): string {
   return date.toISOString().slice(0, 10); // "YYYY-MM-DD"
@@ -19,21 +57,32 @@ function isClaimedToday(lastClaimedAt: admin.firestore.Timestamp | string | null
   return getUTCDateString(date) === getUTCDateString();
 }
 
+// =============================================================================
+// TYPES
+// =============================================================================
+
 export interface CreditCheckResult {
   success: boolean;
   message: string;
   remainingCredits?: number;
+  model?: string;
+  planType?: string;
 }
 
-/**
- * Atomically checks and deducts 1 credit for a bot generation.
- * For free-plan users, bonus_credits only count if claimed today (UTC).
- * Called by the generate route before starting the AI pipeline.
- */
-export async function checkAndDeductCredits(userId: string): Promise<CreditCheckResult> {
+// =============================================================================
+// checkAndDeductCredits
+// Atomically checks, deducts credits, and returns the model to use.
+// Called by the generate route before starting the AI pipeline.
+// =============================================================================
+
+export async function checkAndDeductCredits(
+  userId: string,
+  actionType: ActionType = 'full_build',
+): Promise<CreditCheckResult> {
   const db = admin.firestore();
   const creditsRef = db.collection('userCredits').doc(userId);
   const subscriptionRef = db.collection('subscriptions').doc(userId);
+  const cost = ACTION_COSTS[actionType];
 
   return db.runTransaction(async (tx) => {
     const [creditsSnap, subSnap] = await Promise.all([
@@ -42,6 +91,18 @@ export async function checkAndDeductCredits(userId: string): Promise<CreditCheck
     ]);
 
     const planType = subSnap.exists ? (subSnap.data()?.plan_type ?? 'free') : 'free';
+    const model = PLAN_MODEL[planType] ?? PLAN_MODEL['free'];
+
+    // Free actions (clarify, chat) — skip deduction entirely
+    if (cost === 0) {
+      return {
+        success: true,
+        message: 'No credits required',
+        remainingCredits: undefined,
+        model,
+        planType,
+      };
+    }
 
     // Auto-create credits doc if missing
     if (!creditsSnap.exists) {
@@ -57,36 +118,42 @@ export async function checkAndDeductCredits(userId: string): Promise<CreditCheck
       });
       return {
         success: false,
-        message: 'No credits available. Claim your 5 daily free credits in the dashboard.',
+        message: 'No credits available. Claim your 3 daily free credits in the dashboard.',
+        model,
+        planType,
       };
     }
 
     const d = creditsSnap.data()!;
-
-    // For free users, bonus_credits expire at UTC midnight if not used.
     const isFree = planType === 'free';
+
+    // For free users, bonus_credits expire at UTC midnight if not claimed today
     const bonusCredits = isFree
       ? (isClaimedToday(d.last_daily_bonus_at) ? Number(d.bonus_credits ?? 0) : 0)
       : Number(d.bonus_credits ?? 0);
 
-    const monthly = Number(d.monthly_credits ?? 0);
-    const rollover = Number(d.rollover_credits ?? 0);
-    const topup = Number(d.topup_credits ?? 0);
-    const total = monthly + bonusCredits + rollover + topup;
+    const monthly  = Number(d.monthly_credits  ?? 0);
+    const rollover = Number(d.rollover_credits  ?? 0);
+    const topup    = Number(d.topup_credits     ?? 0);
+    const total    = monthly + bonusCredits + rollover + topup;
 
-    if (total < GENERATION_COST) {
+    if (total < cost) {
       return {
         success: false,
         message: isFree
-          ? 'No credits left. Claim your 5 daily free credits or upgrade your plan.'
-          : 'Insufficient credits. Please top up or upgrade your plan.',
+          ? `Need ${cost} credit${cost !== 1 ? 's' : ''} (you have ${total}). Claim your daily credits or upgrade.`
+          : `Need ${cost} credit${cost !== 1 ? 's' : ''} (you have ${total}). Top up or upgrade your plan.`,
+        model,
+        planType,
       };
     }
 
-    // Deduct from bonus first, then monthly
-    let toDeduct = GENERATION_COST;
-    let newBonus = bonusCredits;
+    // Deduct in order: bonus → monthly → rollover → topup
+    let toDeduct   = cost;
+    let newBonus   = bonusCredits;
     let newMonthly = monthly;
+    let newRollover = rollover;
+    let newTopup   = topup;
 
     if (newBonus >= toDeduct) {
       newBonus -= toDeduct;
@@ -95,26 +162,47 @@ export async function checkAndDeductCredits(userId: string): Promise<CreditCheck
       toDeduct -= newBonus;
       newBonus = 0;
     }
-    if (toDeduct > 0) newMonthly = Math.max(0, newMonthly - toDeduct);
+    if (toDeduct > 0) {
+      if (newMonthly >= toDeduct) {
+        newMonthly -= toDeduct;
+        toDeduct = 0;
+      } else {
+        toDeduct -= newMonthly;
+        newMonthly = 0;
+      }
+    }
+    if (toDeduct > 0) {
+      if (newRollover >= toDeduct) {
+        newRollover -= toDeduct;
+        toDeduct = 0;
+      } else {
+        toDeduct -= newRollover;
+        newRollover = 0;
+      }
+    }
+    if (toDeduct > 0) {
+      newTopup = Math.max(0, newTopup - toDeduct);
+    }
 
-    const balanceAfter = newMonthly + newBonus + rollover + topup;
+    const balanceAfter = newMonthly + newBonus + newRollover + newTopup;
 
     tx.update(creditsRef, {
-      bonus_credits: newBonus,
-      monthly_credits: newMonthly,
+      bonus_credits:    newBonus,
+      monthly_credits:  newMonthly,
+      rollover_credits: newRollover,
+      topup_credits:    newTopup,
       updated_at: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Log the transaction
     const txLogRef = db.collection('creditTransactions').doc();
     tx.set(txLogRef, {
       user_id: userId,
       transaction_type: 'deduction',
-      action_type: 'bot_generation',
-      amount: -GENERATION_COST,
+      action_type: actionType,
+      amount: -cost,
       balance_after: balanceAfter,
-      description: 'Bot generation',
-      metadata: {},
+      description: `${actionType.replace(/_/g, ' ')} (${cost} credit${cost !== 1 ? 's' : ''})`,
+      metadata: { planType, model },
       created_at: admin.firestore.FieldValue.serverTimestamp(),
     });
 
@@ -122,6 +210,8 @@ export async function checkAndDeductCredits(userId: string): Promise<CreditCheck
       success: true,
       message: 'Credits deducted',
       remainingCredits: balanceAfter,
+      model,
+      planType,
     };
   });
 }
