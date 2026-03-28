@@ -27,6 +27,7 @@ app.get('/logs', async (c) => {
   try {
     const snap = await db()
       .collection('_debugLogs')
+      .orderBy('timestamp', 'desc')
       .limit(limit)
       .get();
 
