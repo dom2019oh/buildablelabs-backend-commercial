@@ -12,6 +12,12 @@ const app = new Hono();
 const authorized = (c: { req: { header: (name: string) => string | undefined } }) =>
   (c.req.header('x-log-key') ?? '') === env.DEBUG_SECRET;
 
+// ── GET /ping — static test, no Firestore ────────────────────────────────────
+app.get('/ping', (c) => {
+  if (!authorized(c)) return c.json({ error: 'Forbidden' }, 403);
+  return c.json({ ok: true, secret: env.DEBUG_SECRET.slice(0, 4) + '...' });
+});
+
 // ── GET /logs?limit=50 ───────────────────────────────────────────────────────
 app.get('/logs', async (c) => {
   if (!authorized(c)) return c.json({ error: 'Forbidden' }, 403);
