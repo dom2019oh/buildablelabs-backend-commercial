@@ -1,6 +1,5 @@
 // =============================================================================
-// Debug Routes — read logs + receive frontend errors
-// All unauthenticated but key-protected (DEBUG_SECRET env var)
+// Internal Log Routes — key-protected via x-log-key header
 // =============================================================================
 
 import { Hono } from 'hono';
@@ -10,30 +9,30 @@ import { env } from '../config/env';
 
 const app = new Hono();
 
-// ── Key guard — reads from X-Log-Key header ──────────────────────────────────
-const checkKey = (c: ReturnType<typeof app.get> extends never ? never : Parameters<Parameters<typeof app.get>[1]>[0]) =>
+const authorized = (c: { req: { header: (name: string) => string | undefined } }) =>
   (c.req.header('x-log-key') ?? '') === env.DEBUG_SECRET;
 
-// ── GET /logs?limit=50  (key via X-Log-Key header) ───────────────────────────
+// ── GET /logs?limit=50 ───────────────────────────────────────────────────────
 app.get('/logs', async (c) => {
-  if ((c.req.header('x-log-key') ?? '') !== env.DEBUG_SECRET) {
-    return c.json({ error: 'Forbidden' }, 403);
-  }
+  if (!authorized(c)) return c.json({ error: 'Forbidden' }, 403);
 
   const limit = Math.min(parseInt(c.req.query('limit') ?? '50'), 200);
 
-  const snap = await db()
-    .collection('_debugLogs')
-    .orderBy('timestamp', 'desc')
-    .limit(limit)
-    .get();
+  try {
+    const snap = await db()
+      .collection('_debugLogs')
+      .orderBy('timestamp', 'desc')
+      .limit(limit)
+      .get();
 
-  const logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  return c.json({ logs, count: logs.length });
+    const logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    return c.json({ logs, count: logs.length });
+  } catch (err) {
+    return c.json({ error: 'Failed to fetch logs', detail: String(err) }, 500);
+  }
 });
 
-// ── POST /api/debug/client-error ─────────────────────────────────────────────
-// Frontend posts unhandled errors here (no auth required — errors happen before auth)
+// ── POST /client-error ───────────────────────────────────────────────────────
 app.post('/client-error', async (c) => {
   try {
     const body = await c.req.json();
@@ -50,23 +49,24 @@ app.post('/client-error', async (c) => {
       },
     });
   } catch {
-    // Swallow — don't let error reporting cause more errors
+    // Never throw from error reporting
   }
   return c.json({ ok: true });
 });
 
-// ── DELETE /logs  (key via X-Log-Key header) ─────────────────────────────────
+// ── DELETE /logs ─────────────────────────────────────────────────────────────
 app.delete('/logs', async (c) => {
-  if ((c.req.header('x-log-key') ?? '') !== env.DEBUG_SECRET) {
-    return c.json({ error: 'Forbidden' }, 403);
+  if (!authorized(c)) return c.json({ error: 'Forbidden' }, 403);
+
+  try {
+    const snap = await db().collection('_debugLogs').limit(500).get();
+    const batch = db().batch();
+    snap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+    return c.json({ deleted: snap.size });
+  } catch (err) {
+    return c.json({ error: 'Failed to clear logs', detail: String(err) }, 500);
   }
-
-  const snap = await db().collection('_debugLogs').limit(500).get();
-  const batch = db().batch();
-  snap.docs.forEach(d => batch.delete(d.ref));
-  await batch.commit();
-
-  return c.json({ deleted: snap.size });
 });
 
 export { app as debugRoutes };
