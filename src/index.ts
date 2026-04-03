@@ -27,6 +27,7 @@ import { generateRoutes } from './api/generate';
 import { previewRoutes } from './api/preview';
 import { creditRoutes } from './api/credits';
 import { billingRoutes, billingWebhookRoutes } from './api/billing';
+import { adminRoutes } from './api/admin';
 import { debugRoutes } from './api/debug';
 import { donateRoutes } from './api/donate';
 import { ipGuard } from './middleware/ipGuard';
@@ -122,6 +123,7 @@ api.route('/generate', generateRoutes);
 api.route('/preview', previewRoutes);
 api.route('/credits', creditRoutes);
 api.route('/billing', billingRoutes);
+api.route('/admin', adminRoutes);
 
 app.route('/api', api);
 

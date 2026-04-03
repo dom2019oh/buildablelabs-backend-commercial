@@ -41,6 +41,9 @@ const envSchema = z.object({
 
   // Debug log endpoint secret (set in Railway)
   DEBUG_SECRET: z.string().default('buildable-debug-2026'),
+
+  // Admin email — used to grant admin custom claim (set in Railway)
+  ADMIN_EMAIL: z.string().optional(),
 });
 
 // Parse and validate environment
