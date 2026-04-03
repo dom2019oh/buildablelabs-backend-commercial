@@ -28,6 +28,7 @@ import { previewRoutes } from './api/preview';
 import { creditRoutes } from './api/credits';
 import { billingRoutes, billingWebhookRoutes } from './api/billing';
 import { debugRoutes } from './api/debug';
+import { donateRoutes } from './api/donate';
 import { writeDebugLog } from './utils/debugLog';
 
 // Services
@@ -50,6 +51,9 @@ app.use('*', cors({
 
 // Stripe webhook — must be BEFORE auth middleware (raw body, no JWT)
 app.route('/api/billing/webhook', billingWebhookRoutes);
+
+// Donate — unauthenticated, anyone can donate
+app.route('/api/donate', donateRoutes);
 
 // Internal log routes — key-protected, no JWT required
 app.route('/api/internal/logs', debugRoutes);
