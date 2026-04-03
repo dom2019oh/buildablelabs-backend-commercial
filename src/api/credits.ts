@@ -2,39 +2,34 @@
 // Credits API Routes
 // All credit mutations are server-side only. Admin SDK bypasses Firestore rules.
 // The client has read-only access to credits via Firestore onSnapshot.
+//
+// FREE TIER: 10 lifetime builds. No daily claim. No reset. Ever.
+// PAID TIER: monthly credits from subscription, unchanged.
 // =============================================================================
 
 import { Hono } from 'hono';
 import admin from 'firebase-admin';
-import { claimRateLimit } from '../utils/rateLimit';
+import { claimRateLimit, ipInitLimit } from '../utils/rateLimit';
+import { getClientIp } from '../middleware/ipGuard';
+import { FREE_LIFETIME_LIMIT } from '../services/credits';
 
 const app = new Hono();
-const FREE_DAILY_CREDITS = 3;
-
-function getUTCDateString(date: Date = new Date()): string {
-  return date.toISOString().slice(0, 10); // "YYYY-MM-DD"
-}
-
-function isClaimedToday(ts: admin.firestore.Timestamp | null | undefined): boolean {
-  if (!ts) return false;
-  return getUTCDateString(ts.toDate()) === getUTCDateString();
-}
-
-function msUntilUTCMidnight(): number {
-  const now = new Date();
-  const midnight = new Date(Date.UTC(
-    now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1,
-  ));
-  return midnight.getTime() - now.getTime();
-}
 
 // =============================================================================
 // POST /api/credits/initialize
-// Creates the credits doc for a new user with safe defaults.
-// Idempotent — safe to call multiple times.
+// Creates the credits doc for a new user. Idempotent.
+// Also enforces per-IP new-account throttle.
 // =============================================================================
 app.post('/initialize', async (c) => {
   const userId = c.get('userId') as string;
+
+  // Per-IP account creation throttle: 3 new accounts per IP per day
+  const ip = getClientIp(c);
+  const rl = ipInitLimit(ip);
+  if (!rl.allowed) {
+    return c.json({ error: 'Too many accounts created from this network today.' }, 429);
+  }
+
   const db = admin.firestore();
   const ref = db.collection('userCredits').doc(userId);
 
@@ -45,11 +40,14 @@ app.post('/initialize', async (c) => {
 
   await ref.set({
     user_id: userId,
-    monthly_credits: 0,
-    bonus_credits: 0,
+    // Free tier lifetime model
+    lifetime_builds_used: 0,
+    free_lifetime_limit:  FREE_LIFETIME_LIMIT,
+    // Paid tier fields (zero for free users)
+    monthly_credits:  0,
+    bonus_credits:    0,
     rollover_credits: 0,
-    topup_credits: 0,
-    last_daily_bonus_at: null,
+    topup_credits:    0,
     created_at: admin.firestore.FieldValue.serverTimestamp(),
     updated_at: admin.firestore.FieldValue.serverTimestamp(),
   });
@@ -59,101 +57,47 @@ app.post('/initialize', async (c) => {
 
 // =============================================================================
 // POST /api/credits/claim
-// Claims the daily 5 credits. Enforced server-side UTC midnight reset.
-// Returns 409 if already claimed today.
+// No-op for free users — lifetime credits need no claim.
+// Kept for paid users who may have bonus credits.
 // =============================================================================
 app.post('/claim', async (c) => {
   const userId = c.get('userId') as string;
 
-  // Rate limit: 5 requests per minute (server already enforces once-per-day, this stops hammering)
   const rl = claimRateLimit(userId);
   if (!rl.allowed) {
     return c.json({ error: 'Too many requests', retryAfterMs: rl.retryAfterMs }, 429);
   }
 
   const db = admin.firestore();
-  const creditsRef = db.collection('userCredits').doc(userId);
+  const [creditsSnap, subSnap] = await Promise.all([
+    db.collection('userCredits').doc(userId).get(),
+    db.collection('subscriptions').doc(userId).get(),
+  ]);
 
-  try {
-    const result = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(creditsRef);
+  const planType = subSnap.exists ? (subSnap.data()?.plan_type ?? 'free') : 'free';
 
-      // Auto-initialize if missing
-      if (!snap.exists) {
-        tx.set(creditsRef, {
-          user_id: userId,
-          monthly_credits: 0,
-          bonus_credits: FREE_DAILY_CREDITS,
-          rollover_credits: 0,
-          topup_credits: 0,
-          last_daily_bonus_at: admin.firestore.FieldValue.serverTimestamp(),
-          created_at: admin.firestore.FieldValue.serverTimestamp(),
-          updated_at: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        const txRef = db.collection('creditTransactions').doc();
-        tx.set(txRef, {
-          user_id: userId,
-          transaction_type: 'daily_claim',
-          action_type: null,
-          amount: FREE_DAILY_CREDITS,
-          balance_after: FREE_DAILY_CREDITS,
-          description: 'Daily credits claimed',
-          metadata: {},
-          created_at: admin.firestore.FieldValue.serverTimestamp(),
-        });
-
-        return { success: true, credits_added: FREE_DAILY_CREDITS };
-      }
-
-      const d = snap.data()!;
-
-      // Server-side UTC date check — cannot be spoofed by client clock
-      if (isClaimedToday(d.last_daily_bonus_at ?? null)) {
-        return {
-          success: false,
-          alreadyClaimed: true,
-          message: 'Already claimed today',
-          ms_until_reset: msUntilUTCMidnight(),
-        };
-      }
-
-      // SET bonus_credits to exactly FREE_DAILY_CREDITS (not +=)
-      // This resets yesterday's unused credits rather than accumulating them.
-      tx.update(creditsRef, {
-        bonus_credits: FREE_DAILY_CREDITS,
-        last_daily_bonus_at: admin.firestore.FieldValue.serverTimestamp(),
-        updated_at: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      const txRef = db.collection('creditTransactions').doc();
-      tx.set(txRef, {
-        user_id: userId,
-        transaction_type: 'daily_claim',
-        action_type: null,
-        amount: FREE_DAILY_CREDITS,
-        balance_after: FREE_DAILY_CREDITS,
-        description: 'Daily credits claimed',
-        metadata: {},
-        created_at: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      return { success: true, credits_added: FREE_DAILY_CREDITS };
+  // Free users have lifetime credits — nothing to claim
+  if (planType === 'free') {
+    const d = creditsSnap.exists ? creditsSnap.data()! : {};
+    const used  = Number(d.lifetime_builds_used ?? 0);
+    const limit = Number(d.free_lifetime_limit  ?? FREE_LIFETIME_LIMIT);
+    return c.json({
+      success: false,
+      lifetime: true,
+      lifetime_builds_used: used,
+      free_lifetime_limit:  limit,
+      remaining: Math.max(0, limit - used),
+      message: `Free plan includes ${limit} lifetime builds. You've used ${used}.`,
     });
-
-    if (!result.success) {
-      return c.json(result, 409);
-    }
-
-    return c.json(result);
-  } catch (err) {
-    return c.json({ error: 'Failed to claim credits' }, 500);
   }
+
+  // Paid users: nothing to claim on this endpoint currently (bonus credits handled elsewhere)
+  return c.json({ success: false, message: 'No claimable credits available.' });
 });
 
 // =============================================================================
 // GET /api/credits
-// Canonical server-side credit balance. Use this to verify what the UI shows.
+// Canonical server-side credit balance.
 // =============================================================================
 app.get('/', async (c) => {
   const userId = c.get('userId') as string;
@@ -165,28 +109,35 @@ app.get('/', async (c) => {
   ]);
 
   if (!creditsSnap.exists) {
-    return c.json({ initialized: false, totalCredits: 0, canClaimToday: true });
+    return c.json({ initialized: false, totalCredits: 0, planType: 'free' });
   }
 
   const d = creditsSnap.data()!;
-  const planType: string = subSnap.exists ? (subSnap.data()?.plan_type ?? 'free') : 'free';
-  const isFree = planType === 'free';
+  const planType = subSnap.exists ? (subSnap.data()?.plan_type ?? 'free') : 'free';
+  const isFree   = planType === 'free';
 
-  const bonusFromToday = isClaimedToday(d.last_daily_bonus_at ?? null);
-  const effectiveBonus = bonusFromToday ? Number(d.bonus_credits ?? 0) : 0;
+  if (isFree) {
+    const used  = Number(d.lifetime_builds_used ?? 0);
+    const limit = Number(d.free_lifetime_limit  ?? FREE_LIFETIME_LIMIT);
+    const topup = Number(d.topup_credits        ?? 0);
+    const totalCredits = Math.max(0, limit - used) + topup;
+    return c.json({
+      initialized: true,
+      totalCredits,
+      planType,
+      lifetime_builds_used: used,
+      free_lifetime_limit:  limit,
+      canClaimToday: false, // no daily claim for free tier
+    });
+  }
 
-  const totalCredits = isFree
-    ? effectiveBonus + Number(d.topup_credits ?? 0)
-    : Number(d.monthly_credits ?? 0) + Number(d.bonus_credits ?? 0) +
-      Number(d.rollover_credits ?? 0) + Number(d.topup_credits ?? 0);
+  const totalCredits =
+    Number(d.monthly_credits  ?? 0) +
+    Number(d.bonus_credits    ?? 0) +
+    Number(d.rollover_credits ?? 0) +
+    Number(d.topup_credits    ?? 0);
 
-  return c.json({
-    initialized: true,
-    totalCredits,
-    planType,
-    canClaimToday: !bonusFromToday,
-    ms_until_reset: msUntilUTCMidnight(),
-  });
+  return c.json({ initialized: true, totalCredits, planType, canClaimToday: false });
 });
 
 export { app as creditRoutes };

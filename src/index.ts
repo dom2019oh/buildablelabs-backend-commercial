@@ -29,6 +29,7 @@ import { creditRoutes } from './api/credits';
 import { billingRoutes, billingWebhookRoutes } from './api/billing';
 import { debugRoutes } from './api/debug';
 import { donateRoutes } from './api/donate';
+import { ipGuard } from './middleware/ipGuard';
 import { writeDebugLog } from './utils/debugLog';
 
 // Services
@@ -113,7 +114,9 @@ api.use('*', async (c, next) => {
   }
 });
 
-// Mount routes
+// Mount routes — IP guard applied to high-value endpoints
+api.use('/generate/*', ipGuard);
+api.use('/credits/initialize', ipGuard);
 api.route('/workspace', workspaceRoutes);
 api.route('/generate', generateRoutes);
 api.route('/preview', previewRoutes);

@@ -8,7 +8,8 @@ import * as db from '../db/queries';
 import { aiLogger as logger } from '../utils/logger';
 import { GenerationPipeline } from '../services/ai/pipeline';
 import { checkAndDeductCredits, type ActionType } from '../services/credits';
-import { generateRateLimit } from '../utils/rateLimit';
+import { generateRateLimit, ipGenerateLimit } from '../utils/rateLimit';
+import { getClientIp } from '../middleware/ipGuard';
 
 const app = new Hono();
 
@@ -37,10 +38,17 @@ app.post('/:workspaceId', async (c) => {
   const userId = c.get('userId');
   const workspaceId = c.req.param('workspaceId');
 
-  // Rate limit: 10 generation requests per minute per user
+  // Rate limit: 10 req/min per user
   const rl = generateRateLimit(userId);
   if (!rl.allowed) {
     return c.json({ error: 'Too many requests', retryAfterMs: rl.retryAfterMs }, 429);
+  }
+
+  // Per-IP rate limit: 5 builds/hr — catches VPN account-hoppers
+  const ip = getClientIp(c);
+  const ipRl = ipGenerateLimit(ip);
+  if (!ipRl.allowed) {
+    return c.json({ error: 'Too many builds from your network. Try again later.', retryAfterMs: ipRl.retryAfterMs }, 429);
   }
   const body = await c.req.json();
 

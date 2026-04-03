@@ -1,49 +1,48 @@
 // =============================================================================
-// Simple in-memory sliding-window rate limiter
-// No external deps — uses a Map<userId, timestamp[]>
+// In-memory sliding-window rate limiters
+// No external deps — Map<key, timestamp[]> per limiter instance
 // =============================================================================
 
 type RateLimitConfig = {
-  windowMs: number;   // window length in ms
-  maxRequests: number; // max requests per window per user
+  windowMs: number;
+  maxRequests: number;
 };
 
 function createLimiter(config: RateLimitConfig) {
-  // Map<userId, sorted list of request timestamps>
   const windows = new Map<string, number[]>();
 
-  // Prune the map periodically to avoid unbounded growth
+  // Prune stale entries periodically
   setInterval(() => {
     const cutoff = Date.now() - config.windowMs;
-    for (const [uid, timestamps] of windows) {
+    for (const [key, timestamps] of windows) {
       const filtered = timestamps.filter(t => t > cutoff);
-      if (filtered.length === 0) {
-        windows.delete(uid);
-      } else {
-        windows.set(uid, filtered);
-      }
+      if (filtered.length === 0) windows.delete(key);
+      else windows.set(key, filtered);
     }
   }, config.windowMs);
 
-  return function rateLimitMiddleware(userId: string): { allowed: boolean; retryAfterMs: number } {
+  return function check(key: string): { allowed: boolean; retryAfterMs: number } {
     const now = Date.now();
     const cutoff = now - config.windowMs;
-    const prev = (windows.get(userId) ?? []).filter(t => t > cutoff);
+    const prev = (windows.get(key) ?? []).filter(t => t > cutoff);
 
     if (prev.length >= config.maxRequests) {
-      const oldestInWindow = prev[0];
-      const retryAfterMs = oldestInWindow + config.windowMs - now;
+      const retryAfterMs = prev[0] + config.windowMs - now;
       return { allowed: false, retryAfterMs };
     }
 
     prev.push(now);
-    windows.set(userId, prev);
+    windows.set(key, prev);
     return { allowed: true, retryAfterMs: 0 };
   };
 }
 
-// Generate: max 10 requests per minute per user
-export const generateRateLimit = createLimiter({ windowMs: 60_000, maxRequests: 10 });
+// Per-user limiters
+export const generateRateLimit  = createLimiter({ windowMs: 60_000,          maxRequests: 10 }); // 10/min per user
+export const claimRateLimit     = createLimiter({ windowMs: 60_000,          maxRequests: 5  }); // 5/min per user (stops hammering)
+export const freeTierHourlyLimit = createLimiter({ windowMs: 60 * 60_000,   maxRequests: 3  }); // 3 builds/hr per free account
 
-// Credits claim: max 5 requests per minute per user (already server-enforced to once/day, but stops hammering)
-export const claimRateLimit = createLimiter({ windowMs: 60_000, maxRequests: 5 });
+// Per-IP limiters
+export const ipGenerateLimit    = createLimiter({ windowMs: 60 * 60_000,     maxRequests: 5  }); // 5 builds/hr per IP
+export const ipInitLimit        = createLimiter({ windowMs: 24 * 60 * 60_000, maxRequests: 3 }); // 3 new accounts/day per IP
+export const ipApiLimit         = createLimiter({ windowMs: 60_000,          maxRequests: 120 }); // 120 req/min per IP (brute force)
