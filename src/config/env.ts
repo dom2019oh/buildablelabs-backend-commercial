@@ -19,9 +19,13 @@ const envSchema = z.object({
   // Anthropic — Claude is the only AI provider
   ANTHROPIC_API_KEY: z.string().min(1),
 
-  // Model overrides (defaults to claude-sonnet-4-6)
-  DEFAULT_ARCHITECT_MODEL: z.string().default('claude-sonnet-4-6'),
+  // Model overrides per stage — tune cost vs quality here
+  // Coder: keep Sonnet — code quality directly impacts bot correctness
+  // Architect: Haiku handles JSON planning well; upgrade to Sonnet for complex multi-feature bots
+  // Validator: Haiku is sufficient — it checks ~10 known structural patterns, not creative reasoning
+  DEFAULT_ARCHITECT_MODEL: z.string().default('claude-haiku-4-5-20251001'),
   DEFAULT_CODER_MODEL: z.string().default('claude-sonnet-4-6'),
+  DEFAULT_VALIDATOR_MODEL: z.string().default('claude-haiku-4-5-20251001'),
 
   // Stripe
   STRIPE_SECRET_KEY: z.string().optional(),

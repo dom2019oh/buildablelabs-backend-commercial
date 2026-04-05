@@ -13,6 +13,61 @@ import { Architect } from './architect';
 import { Coder } from './coder';
 import { Validator } from './validator';
 import { env } from '../../config/env';
+import type { StageUsage } from './providers';
+
+// ─── Cost accumulator ────────────────────────────────────────────────────────
+
+function zeroCost(stage: StageUsage['stage'], model: string): StageUsage {
+  return { stage, model, inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, costUsd: 0 };
+}
+
+function addUsage(acc: StageUsage, u: StageUsage): StageUsage {
+  return {
+    ...acc,
+    inputTokens:         acc.inputTokens         + u.inputTokens,
+    outputTokens:        acc.outputTokens        + u.outputTokens,
+    cacheCreationTokens: acc.cacheCreationTokens + u.cacheCreationTokens,
+    cacheReadTokens:     acc.cacheReadTokens     + u.cacheReadTokens,
+    costUsd:             acc.costUsd             + u.costUsd,
+  };
+}
+
+function buildCostPayload(stages: StageUsage[]) {
+  const totals = stages.reduce(
+    (acc, s) => ({
+      inputTokens:         acc.inputTokens         + s.inputTokens,
+      outputTokens:        acc.outputTokens        + s.outputTokens,
+      cacheCreationTokens: acc.cacheCreationTokens + s.cacheCreationTokens,
+      cacheReadTokens:     acc.cacheReadTokens     + s.cacheReadTokens,
+      costUsd:             acc.costUsd             + s.costUsd,
+    }),
+    { inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, costUsd: 0 },
+  );
+
+  const breakdown: Record<string, object> = {};
+  for (const s of stages) {
+    breakdown[s.stage] = {
+      model:               s.model,
+      input_tokens:        s.inputTokens,
+      output_tokens:       s.outputTokens,
+      cache_creation_tokens: s.cacheCreationTokens,
+      cache_read_tokens:   s.cacheReadTokens,
+      cost_usd:            +s.costUsd.toFixed(6),
+      ...(s.filesGenerated !== undefined ? { files_generated: s.filesGenerated } : {}),
+    };
+  }
+
+  return {
+    cost_usd: +totals.costUsd.toFixed(6),
+    cost_breakdown: breakdown,
+    tokens_total: {
+      input:          totals.inputTokens,
+      output:         totals.outputTokens,
+      cache_creation: totals.cacheCreationTokens,
+      cache_read:     totals.cacheReadTokens,
+    },
+  };
+}
 
 // =============================================================================
 // TYPES
@@ -103,7 +158,7 @@ export class GenerationPipeline {
     const architect = new Architect(this.options?.model ?? env.DEFAULT_ARCHITECT_MODEL);
     const existingFiles = await db.getWorkspaceFiles(this.workspaceId);
 
-    const plan = await architect.createPlan(this.prompt, existingFiles);
+    const { plan, usage: architectUsage } = await architect.createPlan(this.prompt, existingFiles);
 
     await db.updateSession(this.sessionId, {
       plan: plan as unknown as object,
@@ -115,16 +170,18 @@ export class GenerationPipeline {
     await db.upsertFile(this.workspaceId, this.userId, 'PLAN.md', planContent);
 
     const duration = Date.now() - startTime;
+    const costPayload = buildCostPayload([architectUsage]);
 
     await db.updateSession(this.sessionId, {
       status: 'completed',
       files_generated: 1,
       completed_at: new Date().toISOString(),
+      ...costPayload,
     });
 
     await db.updateWorkspaceStatus(this.workspaceId, 'ready');
 
-    logger.info({ sessionId: this.sessionId, durationMs: duration }, '[Plan Mode] Plan created');
+    logger.info({ sessionId: this.sessionId, durationMs: duration, ...costPayload }, '[Plan Mode] Plan created');
   }
 
   // ===========================================================================
@@ -139,7 +196,7 @@ export class GenerationPipeline {
     const architect = new Architect(this.options?.model ?? env.DEFAULT_ARCHITECT_MODEL);
     const existingFiles = await db.getWorkspaceFiles(this.workspaceId);
 
-    const plan = await architect.createPlan(this.prompt, existingFiles);
+    const { plan, usage: architectUsage } = await architect.createPlan(this.prompt, existingFiles);
 
     await db.updateSession(this.sessionId, {
       plan: plan as unknown as object,
@@ -155,16 +212,18 @@ export class GenerationPipeline {
     await db.upsertFile(this.workspaceId, this.userId, 'PLAN.md', planContent);
 
     const duration = Date.now() - startTime;
+    const costPayload = buildCostPayload([architectUsage]);
 
     await db.updateSession(this.sessionId, {
       status: 'completed',
       files_generated: 2,
       completed_at: new Date().toISOString(),
+      ...costPayload,
     });
 
     await db.updateWorkspaceStatus(this.workspaceId, 'ready');
 
-    logger.info({ sessionId: this.sessionId, durationMs: duration }, '[Architect Mode] Architecture docs created');
+    logger.info({ sessionId: this.sessionId, durationMs: duration, ...costPayload }, '[Architect Mode] Architecture docs created');
   }
 
   // ===========================================================================
@@ -180,7 +239,7 @@ export class GenerationPipeline {
     const architect = new Architect(this.options?.model ?? env.DEFAULT_ARCHITECT_MODEL);
     const existingFiles = await db.getWorkspaceFiles(this.workspaceId);
 
-    const plan = await architect.createPlan(this.prompt, existingFiles);
+    const { plan, usage: architectUsage } = await architect.createPlan(this.prompt, existingFiles);
 
     await db.updateSession(this.sessionId, {
       plan: plan as unknown as object,
@@ -205,17 +264,20 @@ export class GenerationPipeline {
 
     const coder = new Coder(this.options?.model ?? env.DEFAULT_CODER_MODEL);
     let filesGenerated = 0;
+    let coderUsage = zeroCost('coder', this.options?.model ?? env.DEFAULT_CODER_MODEL);
 
     for (const fileSpec of plan.files) {
       try {
         const currentFiles = await db.getWorkspaceFiles(this.workspaceId);
 
-        const content = await coder.generateFile(
+        const { content, usage: fileUsage } = await coder.generateFile(
           fileSpec,
           plan,
           currentFiles,
           this.prompt
         );
+
+        coderUsage = addUsage(coderUsage, fileUsage);
 
         const existingFile = currentFiles.find(f => f.file_path === fileSpec.path);
         await db.recordFileOperation(
@@ -227,20 +289,14 @@ export class GenerationPipeline {
           {
             previousContent: existingFile?.content,
             newContent: content,
-            aiModel: this.options?.model ?? env.DEFAULT_CODER_MODEL,
+            aiModel: fileUsage.model,
             aiReasoning: fileSpec.purpose,
           }
         );
 
-        await db.upsertFile(
-          this.workspaceId,
-          this.userId,
-          fileSpec.path,
-          content
-        );
+        await db.upsertFile(this.workspaceId, this.userId, fileSpec.path, content);
 
         filesGenerated++;
-
         await db.updateSession(this.sessionId, { files_generated: filesGenerated });
 
         logger.info({
@@ -258,6 +314,8 @@ export class GenerationPipeline {
       }
     }
 
+    coderUsage.filesGenerated = filesGenerated;
+
     // PHASE 4: VALIDATION
     logger.info({ sessionId: this.sessionId }, 'Phase 4: Validating');
 
@@ -267,6 +325,7 @@ export class GenerationPipeline {
     const allFiles = await db.getWorkspaceFiles(this.workspaceId);
 
     const validationResult = await validator.validate(allFiles);
+    const { usage: validatorUsage } = validationResult;
 
     if (validationResult.errors.length > 0) {
       logger.warn({
@@ -275,21 +334,18 @@ export class GenerationPipeline {
       }, 'Validation found issues, attempting auto-repair');
 
       for (const repair of validationResult.repairs) {
-        await db.upsertFile(
-          this.workspaceId,
-          this.userId,
-          repair.filePath,
-          repair.content
-        );
+        await db.upsertFile(this.workspaceId, this.userId, repair.filePath, repair.content);
       }
     }
 
     const duration = Date.now() - startTime;
+    const costPayload = buildCostPayload([architectUsage, coderUsage, validatorUsage]);
 
     await db.updateSession(this.sessionId, {
       status: 'completed',
       files_generated: filesGenerated,
       completed_at: new Date().toISOString(),
+      ...costPayload,
     });
 
     await db.updateWorkspaceStatus(this.workspaceId, 'ready');
@@ -298,6 +354,8 @@ export class GenerationPipeline {
       sessionId: this.sessionId,
       filesGenerated,
       durationMs: duration,
+      costUsd: `$${costPayload.cost_usd.toFixed(6)}`,
+      cacheReadTokens: costPayload.tokens_total.cache_read,
     }, 'Generation completed');
   }
 

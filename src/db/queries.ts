@@ -60,12 +60,12 @@ export async function updateWorkspace(workspaceId: string, updates: Record<strin
 // FILE QUERIES
 // =============================================================================
 
-export async function getWorkspaceFiles(workspaceId: string) {
+export async function getWorkspaceFiles(workspaceId: string): Promise<Array<{ id: string; file_path: string; content: string; [key: string]: unknown }>> {
   const snapshot = await db().collection('workspaceFiles')
     .where('workspace_id', '==', workspaceId)
     .orderBy('file_path')
     .get();
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as { id: string; file_path: string; content: string; [key: string]: unknown }));
 }
 
 export async function getFile(workspaceId: string, filePath: string) {
@@ -155,6 +155,10 @@ export async function updateSession(
     files_generated?: number;
     error_message?: string;
     completed_at?: string;
+    // Cost tracking — written once at end of pipeline
+    cost_usd?: number;
+    cost_breakdown?: object;
+    tokens_total?: object;
   }
 ) {
   await db().collection('generationSessions').doc(sessionId).update(updates);

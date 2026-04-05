@@ -6,7 +6,7 @@
 
 import { z } from 'zod';
 import { aiLogger as logger } from '../../utils/logger';
-import { callAI, resolveModel } from './providers';
+import { callAI, resolveModel, type StageUsage } from './providers';
 import type { ProjectPlan } from './pipeline';
 
 // =============================================================================
@@ -45,7 +45,7 @@ export class Architect {
   async createPlan(
     prompt: string,
     existingFiles: Array<{ file_path: string; content: string }>
-  ): Promise<ProjectPlan> {
+  ): Promise<{ plan: ProjectPlan; usage: StageUsage }> {
 
     const systemPrompt = `You are a senior Discord bot architect with deep expertise in discord.py 2.x (Python) and discord.js v14 (JavaScript/TypeScript). You design production-quality Discord bots that are well-structured, reliable, and maintainable.
 
@@ -155,8 +155,21 @@ Output ONLY valid JSON.`;
       projectType: validated.projectType,
       inputTokens: response.inputTokens,
       outputTokens: response.outputTokens,
+      cacheCreationTokens: response.cacheCreationTokens,
+      cacheReadTokens: response.cacheReadTokens,
+      costUsd: `$${response.costUsd.toFixed(6)}`,
     }, 'Discord bot plan created');
 
-    return validated as ProjectPlan;
+    const usage: StageUsage = {
+      stage: 'architect',
+      model: response.model,
+      inputTokens: response.inputTokens,
+      outputTokens: response.outputTokens,
+      cacheCreationTokens: response.cacheCreationTokens,
+      cacheReadTokens: response.cacheReadTokens,
+      costUsd: response.costUsd,
+    };
+
+    return { plan: validated as ProjectPlan, usage };
   }
 }

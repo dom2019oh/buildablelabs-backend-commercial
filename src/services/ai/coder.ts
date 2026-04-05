@@ -5,7 +5,7 @@
 // Powered by Claude Sonnet 4.6.
 
 import { aiLogger as logger } from '../../utils/logger';
-import { callAI, resolveModel } from './providers';
+import { callAI, resolveModel, type StageUsage } from './providers';
 import type { ProjectPlan } from './pipeline';
 
 // =============================================================================
@@ -337,7 +337,7 @@ export class Coder {
     plan: ProjectPlan,
     existingFiles: ExistingFile[],
     originalPrompt: string
-  ): Promise<string> {
+  ): Promise<{ content: string; usage: StageUsage }> {
 
     const language = (plan as ProjectPlan & { language?: string }).language ?? 'python';
 
@@ -414,8 +414,21 @@ Output ONLY the raw file content — no markdown fences, no explanation.`;
       contentLength: content.length,
       inputTokens: response.inputTokens,
       outputTokens: response.outputTokens,
+      cacheCreationTokens: response.cacheCreationTokens,
+      cacheReadTokens: response.cacheReadTokens,
+      costUsd: `$${response.costUsd.toFixed(6)}`,
     }, 'Bot file generated');
 
-    return content;
+    const usage: StageUsage = {
+      stage: 'coder',
+      model: response.model,
+      inputTokens: response.inputTokens,
+      outputTokens: response.outputTokens,
+      cacheCreationTokens: response.cacheCreationTokens,
+      cacheReadTokens: response.cacheReadTokens,
+      costUsd: response.costUsd,
+    };
+
+    return { content, usage };
   }
 }

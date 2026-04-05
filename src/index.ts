@@ -30,6 +30,7 @@ import { billingRoutes, billingWebhookRoutes } from './api/billing';
 import { adminRoutes } from './api/admin';
 import { debugRoutes } from './api/debug';
 import { donateRoutes } from './api/donate';
+import { chatRoutes } from './api/chat';
 import { ipGuard } from './middleware/ipGuard';
 import { writeDebugLog } from './utils/debugLog';
 
@@ -120,6 +121,7 @@ api.use('/generate/*', ipGuard);
 api.use('/credits/initialize', ipGuard);
 api.route('/workspace', workspaceRoutes);
 api.route('/generate', generateRoutes);
+api.route('/chat', chatRoutes);
 api.route('/preview', previewRoutes);
 api.route('/credits', creditRoutes);
 api.route('/billing', billingRoutes);
