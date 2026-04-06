@@ -67,6 +67,12 @@ export async function checkAndDeductCredits(
   userId: string,
   actionType: ActionType = 'full_build',
 ): Promise<CreditCheckResult> {
+  // Owner accounts bypass all credit checks — unlimited builds, pro model
+  const ownerUids = (process.env.OWNER_UIDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  if (ownerUids.includes(userId)) {
+    return { success: true, message: 'Owner bypass', model: PLAN_MODEL['pro'] ?? PLAN_MODEL['free'], planType: 'pro', remainingCredits: 99999 };
+  }
+
   const db = admin.firestore();
   const creditsRef = db.collection('userCredits').doc(userId);
   const subscriptionRef = db.collection('subscriptions').doc(userId);
