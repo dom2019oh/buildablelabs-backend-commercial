@@ -31,6 +31,7 @@ import { adminRoutes } from './api/admin';
 import { debugRoutes } from './api/debug';
 import { donateRoutes } from './api/donate';
 import { chatRoutes } from './api/chat';
+import { deployRoutes } from './api/deploy';
 import { ipGuard } from './middleware/ipGuard';
 import { writeDebugLog } from './utils/debugLog';
 
@@ -126,6 +127,7 @@ api.route('/preview', previewRoutes);
 api.route('/credits', creditRoutes);
 api.route('/billing', billingRoutes);
 api.route('/admin', adminRoutes);
+api.route('/deploy', deployRoutes);
 
 app.route('/api', api);
 
