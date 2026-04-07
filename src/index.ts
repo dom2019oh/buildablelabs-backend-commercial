@@ -175,15 +175,61 @@ app.notFound((c) => {
 
 async function start() {
   logger.info('Starting Buildable Backend...');
-  
+
+  // ── Env var audit ────────────────────────────────────────────────────────
+  // Log clearly which vars are present / missing so Railway logs tell the
+  // whole story on a cold start. Never log the values — only presence.
+  const REQUIRED_VARS: Record<string, string> = {
+    FIREBASE_PROJECT_ID:          'Firebase project ID',
+    FIREBASE_SERVICE_ACCOUNT_KEY: 'Firebase service account (base64)',
+    ANTHROPIC_API_KEY:            'Anthropic API key',
+  };
+  const DEPLOY_VARS: Record<string, string> = {
+    BOT_HOST:     'Oracle VPS host/IP',
+    BOT_SSH_KEY:  'SSH private key (base64)',
+    BOT_SSH_USER: 'SSH username (default: root)',
+    BOT_SSH_PORT: 'SSH port (default: 22)',
+  };
+
+  let missingRequired = false;
+  for (const [key, desc] of Object.entries(REQUIRED_VARS)) {
+    if (process.env[key]) {
+      logger.info(`[env] ✓ ${key} — ${desc}`);
+    } else {
+      logger.error(`[env] ✗ MISSING ${key} — ${desc}`);
+      missingRequired = true;
+    }
+  }
+
+  let missingDeploy = false;
+  for (const [key, desc] of Object.entries(DEPLOY_VARS)) {
+    if (process.env[key]) {
+      logger.info(`[env] ✓ ${key} — ${desc}`);
+    } else {
+      logger.warn(`[env] ✗ MISSING ${key} — ${desc} — bot deployment will fail`);
+      missingDeploy = true;
+    }
+  }
+
+  if (missingRequired) {
+    logger.fatal('[env] One or more REQUIRED env vars are missing — aborting startup');
+    process.exit(1);
+  }
+  if (missingDeploy) {
+    logger.warn('[env] Bot deploy env vars are incomplete — /api/deploy/* will error until fixed');
+  } else {
+    logger.info('[env] All deploy env vars present — bot hosting is operational');
+  }
+  // ─────────────────────────────────────────────────────────────────────────
+
   // Initialize job queue
   await initializeQueue();
   logger.info('Job queue initialized');
-  
+
   // Initialize preview manager
   await PreviewManager.initialize();
   logger.info('Preview manager initialized');
-  
+
   return app;
 }
 
