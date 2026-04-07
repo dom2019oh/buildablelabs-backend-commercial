@@ -103,14 +103,21 @@ bot = commands.Bot(
 # EVENTS
 # =============================================================================
 
-# Fires when the bot connects to Discord and slash commands are synced
+# Fires when the bot connects to Discord and registers slash commands
+# Uses guild-specific sync (instant) when GUILD_ID is set, global sync otherwise
 @bot.event
 async def on_ready():
     """Called when the bot is fully logged in and ready."""
     logger.info(f'Logged in as {bot.user} (ID: {bot.user.id})')
     try:
-        synced = await bot.tree.sync()
-        logger.info(f'Synced {len(synced)} slash command(s)')
+        guild_id = os.getenv('GUILD_ID')
+        if guild_id:
+            guild = discord.Object(id=int(guild_id))
+            synced = await bot.tree.sync(guild=guild)
+            logger.info(f'Synced {len(synced)} command(s) to guild {guild_id} — commands are live instantly')
+        else:
+            synced = await bot.tree.sync()
+            logger.info(f'Synced {len(synced)} command(s) globally — may take up to 1 hour to appear')
     except Exception as e:
         logger.error(f'Failed to sync commands: {e}')
 
