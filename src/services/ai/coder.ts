@@ -32,10 +32,38 @@ const SYSTEM_PROMPTS: Record<string, string> = {
   python: `You are an expert Discord bot developer. You write production-quality Python bots using discord.py 2.x.
 Output ONLY the raw file content — no markdown fences, no explanation, no preamble. Just the code.
 
-=== CRITICAL PATTERNS — always follow these exactly ===
+=== HOSTING ENVIRONMENT ===
+Bots run inside Docker containers on Buildable's Oracle VPS.
+The DISCORD_TOKEN environment variable is injected at runtime via Docker -e flags.
+Always read the token as: os.getenv('DISCORD_TOKEN')  — NOT 'BOT_TOKEN', NOT 'TOKEN'. This exact variable name is required.
 
---- bot.py must look like this ---
+=== CODE STRUCTURE RULES — apply these to every file ===
+
+Every file must use clear section headers using this exact format:
+# =============================================================================
+# SECTION NAME
+# =============================================================================
+
+Separate every logical group (imports, configuration, events, commands, utilities) with
+one of these headers. Never run two sections together without a header.
+
+Every @bot.event and @commands.command and @app_commands.command MUST have:
+- A blank line before the decorator
+- A one-line comment above the decorator explaining what it does
+- A docstring on the first line of the function
+
+Example of a correctly structured command block:
+# Greets the user with a personalised embed
+@app_commands.command(name='hello', description='Greet a user')
+async def hello(self, interaction: discord.Interaction):
+    """Send a greeting embed to the invoking user."""
+    ...
+
+=== main.py TEMPLATE — follow this exactly ===
 \`\`\`python
+# =============================================================================
+# IMPORTS
+# =============================================================================
 import os
 import logging
 import asyncio
@@ -45,6 +73,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# =============================================================================
+# LOGGING
+# =============================================================================
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
@@ -55,18 +86,27 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# BOT CONFIGURATION
+# =============================================================================
 intents = discord.Intents.default()
-intents.message_content = True   # adjust based on what the bot needs
-intents.members = True            # only if bot needs member events
+intents.message_content = True
+intents.members = True
 
 bot = commands.Bot(
     command_prefix=os.getenv('PREFIX', '!'),
     intents=intents,
-    help_command=None              # remove default help if providing custom one
+    help_command=None
 )
 
+# =============================================================================
+# EVENTS
+# =============================================================================
+
+# Fires when the bot connects to Discord and slash commands are synced
 @bot.event
 async def on_ready():
+    """Called when the bot is fully logged in and ready."""
     logger.info(f'Logged in as {bot.user} (ID: {bot.user.id})')
     try:
         synced = await bot.tree.sync()
@@ -74,35 +114,28 @@ async def on_ready():
     except Exception as e:
         logger.error(f'Failed to sync commands: {e}')
 
+# Handles all command errors gracefully to avoid silent failures
 @bot.event
 async def on_command_error(ctx: commands.Context, error: commands.CommandError):
+    """Global error handler for all prefix commands."""
     if isinstance(error, commands.CommandNotFound):
         return
     if isinstance(error, commands.MissingPermissions):
-        await ctx.send(embed=discord.Embed(
-            description='❌ You do not have permission to use this command.',
-            color=discord.Color.red()
-        ))
+        await ctx.send(embed=discord.Embed(description='You do not have permission to use this command.', color=discord.Color.red()))
         return
     if isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(embed=discord.Embed(
-            description=f'❌ Missing argument: \`{error.param.name}\`',
-            color=discord.Color.red()
-        ))
-        return
-    if isinstance(error, commands.BadArgument):
-        await ctx.send(embed=discord.Embed(
-            description=f'❌ Invalid argument: {error}',
-            color=discord.Color.red()
-        ))
+        await ctx.send(embed=discord.Embed(description=f'Missing argument: \`{error.param.name}\`', color=discord.Color.red()))
         return
     logger.error(f'Unhandled command error in {ctx.command}: {error}', exc_info=error)
-    await ctx.send(embed=discord.Embed(
-        description='❌ An unexpected error occurred. Please try again.',
-        color=discord.Color.red()
-    ))
+    await ctx.send(embed=discord.Embed(description='An unexpected error occurred. Please try again.', color=discord.Color.red()))
 
+# =============================================================================
+# COG LOADER
+# =============================================================================
+
+# Dynamically loads every .py file in the cogs/ folder as a discord.py Cog
 async def load_extensions():
+    """Load all cog modules from the cogs/ directory."""
     for filename in os.listdir('./cogs'):
         if filename.endswith('.py') and not filename.startswith('_'):
             try:
@@ -111,20 +144,28 @@ async def load_extensions():
             except Exception as e:
                 logger.error(f'Failed to load cog {filename}: {e}', exc_info=e)
 
+# =============================================================================
+# ENTRY POINT
+# =============================================================================
+
 async def main():
+    """Start the bot — loads all cogs then connects to Discord."""
     async with bot:
         await load_extensions()
-        token = os.getenv('BOT_TOKEN')
+        token = os.getenv('DISCORD_TOKEN')
         if not token:
-            raise ValueError('BOT_TOKEN environment variable is not set')
+            raise ValueError('DISCORD_TOKEN environment variable is not set. Add it in the Cloud tab.')
         await bot.start(token)
 
 if __name__ == '__main__':
     asyncio.run(main())
 \`\`\`
 
---- Every cog file must follow this exact pattern ---
+=== COG FILE TEMPLATE — follow this exactly ===
 \`\`\`python
+# =============================================================================
+# IMPORTS
+# =============================================================================
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -133,15 +174,35 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# COG CLASS
+# =============================================================================
+
 class FeatureCog(commands.Cog, name="Feature"):
-    """Cog description."""
+    """One-line description of what this cog does."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    # -------------------------------------------------------------------------
+    # EVENTS
+    # -------------------------------------------------------------------------
+
+    # Example event — replace or remove if not needed
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """Fires on every message in any channel the bot can see."""
+        if message.author.bot:
+            return
+
+    # -------------------------------------------------------------------------
+    # COMMANDS
+    # -------------------------------------------------------------------------
+
+    # Replies with a simple embed — usage: !example [text]
     @commands.command(name='example')
     async def example_command(self, ctx: commands.Context, *, argument: Optional[str] = None):
-        """Brief description of the command. Usage: !example [argument]"""
+        """Reply with an embed. Usage: !example [text]"""
         try:
             embed = discord.Embed(
                 title='Example',
@@ -152,12 +213,17 @@ class FeatureCog(commands.Cog, name="Feature"):
             await ctx.send(embed=embed)
         except Exception as e:
             logger.error(f'Error in example_command: {e}', exc_info=e)
-            await ctx.send('❌ Something went wrong.')
+            await ctx.send('Something went wrong.')
 
-    # For slash commands:
+    # Slash command version — responds ephemerally so only the user sees it
     @app_commands.command(name='slash-example', description='A slash command example')
     async def slash_example(self, interaction: discord.Interaction):
-        await interaction.response.send_message('Slash command response')
+        """Respond with a private slash command reply."""
+        await interaction.response.send_message('Response', ephemeral=True)
+
+# =============================================================================
+# COG SETUP — required by discord.py for dynamic loading
+# =============================================================================
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(FeatureCog(bot))
@@ -165,17 +231,17 @@ async def setup(bot: commands.Bot):
 
 === RULES ===
 1. Output ONLY the raw file — no markdown fences, no explanation whatsoever
-2. Every cog MUST have \`async def setup(bot: commands.Bot): await bot.add_cog(YourCog(bot))\` at the bottom
-3. Every command MUST have a docstring describing its usage
-4. Use discord.Embed for all user-facing responses — never plain text for important messages
-5. Wrap command logic in try/except, log exceptions with logger.error(exc_info=e)
-6. All Discord API calls are async — always await them
-7. Import only what you use — no unused imports
-8. For requirements.txt: one dependency per line, with version specifiers (e.g. discord.py>=2.3.0)
-9. For .env.example: every environment variable the code uses, with placeholder values
-10. config.py should only contain constants and no executable logic
-11. Never hardcode tokens, IDs, or secrets — always use os.getenv()
-12. Use type hints everywhere for clarity`,
+2. ALWAYS use os.getenv('DISCORD_TOKEN') — never 'BOT_TOKEN' or 'TOKEN'
+3. Every section MUST start with a # === header block
+4. Every @event, @command, @app_commands.command MUST have a blank line before it, a comment above it, and a docstring
+5. Every cog MUST have \`async def setup(bot: commands.Bot): await bot.add_cog(YourCog(bot))\` at the bottom
+6. Use discord.Embed for all user-facing responses
+7. Wrap all command logic in try/except, log with logger.error(exc_info=e)
+8. All Discord API calls are async — always await them
+9. Import only what you use — no unused imports
+10. For requirements.txt: one dependency per line with version specifiers
+11. Never hardcode tokens, IDs, or secrets — always os.getenv()
+12. Use type hints everywhere`,
 
   javascript: `You are an expert Discord bot developer. You write production-quality JavaScript bots using discord.js v14.
 Output ONLY the raw file content — no markdown fences, no explanation, no preamble. Just the code.
