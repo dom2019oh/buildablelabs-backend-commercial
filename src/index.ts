@@ -32,8 +32,9 @@ import { debugRoutes } from './api/debug';
 import { donateRoutes } from './api/donate';
 import { chatRoutes } from './api/chat';
 import { deployRoutes } from './api/deploy';
-import { ipGuard } from './middleware/ipGuard';
+import { ipGuard, getClientIp } from './middleware/ipGuard';
 import { writeDebugLog } from './utils/debugLog';
+import { ipGlobalLimit, chatRateLimit } from './utils/rateLimit';
 
 // Services
 import { initializeQueue } from './queue/worker';
@@ -52,6 +53,16 @@ app.use('*', cors({
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization', 'x-log-key'],
 }));
+
+// Global IP rate limit — applied to all routes (brute-force guard)
+app.use('/api/*', async (c, next) => {
+  const ip = getClientIp(c);
+  const rl = ipGlobalLimit(ip);
+  if (!rl.allowed) {
+    return c.json({ error: 'Too many requests. Slow down.', retryAfterMs: rl.retryAfterMs }, 429);
+  }
+  await next();
+});
 
 // Stripe webhook — must be BEFORE auth middleware (raw body, no JWT)
 app.route('/api/billing/webhook', billingWebhookRoutes);
@@ -120,6 +131,17 @@ api.use('*', async (c, next) => {
 // Mount routes — IP guard applied to high-value endpoints
 api.use('/generate/*', ipGuard);
 api.use('/credits/initialize', ipGuard);
+// Per-user chat rate limit (30 messages/min)
+api.use('/chat', async (c, next) => {
+  const userId = c.get('userId');
+  if (userId) {
+    const rl = chatRateLimit(userId);
+    if (!rl.allowed) {
+      return c.json({ error: 'Slow down — too many messages. Try again in a moment.', retryAfterMs: rl.retryAfterMs }, 429);
+    }
+  }
+  await next();
+});
 api.route('/workspace', workspaceRoutes);
 api.route('/generate', generateRoutes);
 api.route('/chat', chatRoutes);

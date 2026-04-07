@@ -38,11 +38,13 @@ function createLimiter(config: RateLimitConfig) {
 }
 
 // Per-user limiters
-export const generateRateLimit  = createLimiter({ windowMs: 60_000,          maxRequests: 10 }); // 10/min per user
-export const claimRateLimit     = createLimiter({ windowMs: 60_000,          maxRequests: 5  }); // 5/min per user (stops hammering)
-export const freeTierHourlyLimit = createLimiter({ windowMs: 60 * 60_000,   maxRequests: 3  }); // 3 builds/hr per free account
+export const generateRateLimit   = createLimiter({ windowMs: 60_000,           maxRequests: 10 }); // 10/min per user
+export const claimRateLimit      = createLimiter({ windowMs: 60_000,           maxRequests: 5  }); // 5/min per user
+export const freeTierHourlyLimit = createLimiter({ windowMs: 60 * 60_000,      maxRequests: 3  }); // 3 builds/hr free
+export const chatRateLimit       = createLimiter({ windowMs: 60_000,           maxRequests: 30 }); // 30 chat msgs/min per user
 
 // Per-IP limiters
-export const ipGenerateLimit    = createLimiter({ windowMs: 60 * 60_000,     maxRequests: 5  }); // 5 builds/hr per IP
-export const ipInitLimit        = createLimiter({ windowMs: 24 * 60 * 60_000, maxRequests: 3 }); // 3 new accounts/day per IP
-export const ipApiLimit         = createLimiter({ windowMs: 60_000,          maxRequests: 120 }); // 120 req/min per IP (brute force)
+export const ipGenerateLimit     = createLimiter({ windowMs: 60 * 60_000,      maxRequests: 5  }); // 5 builds/hr per IP
+export const ipInitLimit         = createLimiter({ windowMs: 24 * 60 * 60_000, maxRequests: 3  }); // 3 new accounts/day per IP
+export const ipApiLimit          = createLimiter({ windowMs: 60_000,           maxRequests: 120 }); // 120 req/min per IP (generate guard)
+export const ipGlobalLimit       = createLimiter({ windowMs: 60_000,           maxRequests: 300 }); // 300 req/min per IP (global brute-force guard)
