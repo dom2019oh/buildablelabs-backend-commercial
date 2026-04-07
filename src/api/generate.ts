@@ -38,17 +38,23 @@ app.post('/:workspaceId', async (c) => {
   const userId = c.get('userId');
   const workspaceId = c.req.param('workspaceId');
 
-  // Rate limit: 10 req/min per user
-  const rl = generateRateLimit(userId);
-  if (!rl.allowed) {
-    return c.json({ error: 'Too many requests', retryAfterMs: rl.retryAfterMs }, 429);
-  }
+  // Owner accounts bypass all rate limits and credit checks
+  const ownerUids = (process.env.OWNER_UIDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+  const isOwner = ownerUids.includes(userId);
 
-  // Per-IP rate limit: 5 builds/hr — catches VPN account-hoppers
-  const ip = getClientIp(c);
-  const ipRl = ipGenerateLimit(ip);
-  if (!ipRl.allowed) {
-    return c.json({ error: 'Too many builds from your network. Try again later.', retryAfterMs: ipRl.retryAfterMs }, 429);
+  if (!isOwner) {
+    // Rate limit: 10 req/min per user
+    const rl = generateRateLimit(userId);
+    if (!rl.allowed) {
+      return c.json({ error: 'Too many requests', retryAfterMs: rl.retryAfterMs }, 429);
+    }
+
+    // Per-IP rate limit: 5 builds/hr — catches VPN account-hoppers
+    const ip = getClientIp(c);
+    const ipRl = ipGenerateLimit(ip);
+    if (!ipRl.allowed) {
+      return c.json({ error: 'Too many builds from your network. Try again later.', retryAfterMs: ipRl.retryAfterMs }, 429);
+    }
   }
   const body = await c.req.json();
 
