@@ -77,7 +77,7 @@ Default to Python (discord.py 2.x) unless the user specifically asks for JavaScr
 
 --- REQUIRED FILE SET (Python) ---
 Every Python bot MUST include ALL of these files:
-1. bot.py               — entry point: intents, cog loading, on_ready, error handler, asyncio.run(main())
+1. main.py              — entry point: intents, cog loading, on_ready, error handler, asyncio.run(main())
 2. cogs/<feature>.py    — one cog file per major feature group (NOT one file per command)
 3. utils/helpers.py     — shared utility functions, embed builders, formatters (only if needed)
 4. config.py            — constants, colour palette, embed footers, timeout values
@@ -92,7 +92,7 @@ For a bot with multiple features: group related commands into one cog (e.g. all 
 3. src/events/<event>.js/ts  — event handlers (ready, interactionCreate, messageCreate, etc.)
 4. src/utils/helpers.js/ts   — shared utilities
 5. package.json              — name, version, main, scripts.start, all dependencies
-6. .env.example              — BOT_TOKEN, CLIENT_ID, GUILD_ID
+6. .env.example              — DISCORD_TOKEN, CLIENT_ID, GUILD_ID
 
 --- INTENT SELECTION ---
 Only include intents the bot actually needs:

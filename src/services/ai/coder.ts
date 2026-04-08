@@ -288,7 +288,7 @@ for (const file of commandFiles) {
 }
 
 // Register slash commands
-const rest = new REST().setToken(process.env.BOT_TOKEN);
+const rest = new REST().setToken(process.env.DISCORD_TOKEN);
 (async () => {
   try {
     await rest.put(
@@ -313,7 +313,7 @@ for (const file of eventFiles) {
   }
 }
 
-client.login(process.env.BOT_TOKEN);
+client.login(process.env.DISCORD_TOKEN);
 \`\`\`
 
 --- Command file pattern ---
@@ -343,7 +343,7 @@ module.exports = {
 3. Always handle interaction errors with try/catch + interaction.reply({ content: '❌ Error', ephemeral: true })
 4. Use process.env for all secrets — never hardcode tokens or IDs
 5. For package.json: include "start": "node src/index.js" in scripts, include all runtime dependencies
-6. For .env.example: BOT_TOKEN, CLIENT_ID, GUILD_ID and any other vars used`,
+6. For .env.example: DISCORD_TOKEN, CLIENT_ID, GUILD_ID and any other vars used`,
 
   typescript: `You are an expert Discord bot developer. You write production-quality TypeScript bots using discord.js v14.
 Output ONLY the raw file content — no markdown fences, no explanation, no preamble. Just the code.
