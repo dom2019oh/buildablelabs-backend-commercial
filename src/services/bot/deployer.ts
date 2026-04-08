@@ -9,7 +9,7 @@ import { sshExec, sftpUploadFiles } from './ssh';
 import { logger } from '../../utils/logger';
 
 const BOTS_DIR       = process.env.BOT_BOTS_DIR    ?? '/bots';
-const BASE_IMAGE     = process.env.BOT_BASE_IMAGE   ?? 'buildablelabs/discord-bot:latest';
+const BASE_IMAGE     = process.env.BOT_BASE_IMAGE   ?? 'python:3.11-slim';
 const CONTAINER_MEM  = process.env.BOT_CONTAINER_MEM ?? '128m';
 const CONTAINER_CPU  = process.env.BOT_CONTAINER_CPU ?? '0.15';
 
@@ -135,15 +135,29 @@ export async function deployBot(workspaceId: string): Promise<void> {
     await sftpUploadFiles([{ path: '.env.deploy', content: envFileContent }], botDir);
     await sshExec(`chmod 600 ${envFilePath}`); // owner-read only
 
-    // 5. Run the container — secrets injected via --env-file, never in command line
+    // 5. Ensure shared pip-cache directory exists on host (speeds up repeated restarts)
+    await sshExec(`mkdir -p ${BOTS_DIR}/.pip-cache`);
+
+    // 6. Run the container — secrets injected via --env-file, never in command line
+    //    Startup script: install pip packages then launch the bot.
+    //    A shared pip-cache volume means the first install downloads packages,
+    //    every subsequent restart just verifies checksums (~2-3 s).
+    const startupCmd = [
+      'pip install -r /app/requirements.txt -q',
+      '&& cd /app',
+      '&& python main.py',
+    ].join(' ');
+
     const runCmd = [
       'docker run -d',
       `--name ${containerName}`,
       `--restart unless-stopped`,
       `-m ${CONTAINER_MEM} --cpus ${CONTAINER_CPU}`,
       `-v ${botDir}:/app`,
+      `-v ${BOTS_DIR}/.pip-cache:/root/.cache/pip`,
       `--env-file ${envFilePath}`,
       BASE_IMAGE,
+      `sh -c "${startupCmd}"`,
     ].join(' ');
 
     const { stdout } = await sshExec(runCmd);
