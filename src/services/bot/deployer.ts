@@ -128,21 +128,21 @@ export async function deployBot(workspaceId: string): Promise<void> {
       `docker stop ${containerName} 2>/dev/null; docker rm ${containerName} 2>/dev/null; echo done`
     );
 
-    // 4. Build env flags string
-    const envFlags = envVars.map(e => {
-      const [k, ...rest] = e.split('=');
-      const v = rest.join('=').replace(/'/g, "'\\''"); // escape single quotes
-      return `-e '${k}=${v}'`;
-    }).join(' ');
+    // 4. Write env vars to a file on the VPS — never pass secrets as -e flags
+    //    (command-line -e args are visible in `ps aux` and SSH logs)
+    const envFileContent = envVars.join('\n');
+    const envFilePath = `${botDir}/.env.deploy`;
+    await sftpUploadFiles([{ path: '.env.deploy', content: envFileContent }], botDir);
+    await sshExec(`chmod 600 ${envFilePath}`); // owner-read only
 
-    // 5. Run the container
+    // 5. Run the container — secrets injected via --env-file, never in command line
     const runCmd = [
       'docker run -d',
       `--name ${containerName}`,
       `--restart unless-stopped`,
       `-m ${CONTAINER_MEM} --cpus ${CONTAINER_CPU}`,
       `-v ${botDir}:/app`,
-      envFlags,
+      `--env-file ${envFilePath}`,
       BASE_IMAGE,
     ].join(' ');
 
