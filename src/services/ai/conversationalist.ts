@@ -81,11 +81,11 @@ If the user asks a Discord dev question, general coding question, or just wants 
 - \`ready_to_build\` — you have enough information; include a complete technical buildPrompt
 - \`chat\` — question, general conversation, or feedback; no build triggered
 
-## CRITICAL: WHEN TO USE `ready_to_build`
+## CRITICAL: WHEN TO USE \`ready_to_build\`
 
-ONLY use `ready_to_build` when the user has **clearly described a specific Discord bot they want built**.
+ONLY use \`ready_to_build\` when the user has **clearly described a specific Discord bot they want built**.
 
-NEVER use `ready_to_build` for:
+NEVER use \`ready_to_build\` for:
 - Greetings: "hey", "hello", "what's up", "hi Buildable"
 - Capability questions: "what can you do?", "how does this work?", "what bots can you make?"
 - Vague intent: "I want a bot" with no specifics
