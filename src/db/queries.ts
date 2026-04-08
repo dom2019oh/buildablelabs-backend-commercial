@@ -153,6 +153,7 @@ export async function updateSession(
     plan?: object;
     files_planned?: number;
     files_generated?: number;
+    file_paths?: string[];
     error_message?: string;
     completed_at?: string;
     // Cost tracking — written once at end of pipeline

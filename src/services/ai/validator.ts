@@ -114,7 +114,7 @@ Only report and fix CRITICAL issues:
 - Invalid discord.py 2.x imports (e.g. using discord.py 1.x patterns)
 - Missing \`client.login()\` in discord.js entry files
 - requirements.txt missing essential packages (discord.py, python-dotenv)
-- .env.example missing DISCORD_TOKEN
+- .env.example missing BOT_TOKEN
 
 DO NOT report: style issues, console.log warnings, type hints, comment quality, or anything subjective.
 

@@ -373,6 +373,7 @@ export class GenerationPipeline {
     await db.updateSession(this.sessionId, {
       status: 'completed',
       files_generated: filesGenerated,
+      file_paths: changedFilePaths,
       completed_at: new Date().toISOString(),
       ...costPayload,
     });
@@ -426,6 +427,7 @@ export class GenerationPipeline {
 
     const coder = new Coder(this.options?.model ?? env.DEFAULT_CODER_MODEL);
     let filesGenerated = 0;
+    const generatedFilePaths: string[] = [];
     let coderUsage = zeroCost('coder', this.options?.model ?? env.DEFAULT_CODER_MODEL);
 
     for (const fileSpec of plan.files) {
@@ -459,6 +461,7 @@ export class GenerationPipeline {
         await db.upsertFile(this.workspaceId, this.userId, fileSpec.path, content);
 
         filesGenerated++;
+        generatedFilePaths.push(fileSpec.path);
         await db.updateSession(this.sessionId, { files_generated: filesGenerated });
 
         logger.info({
@@ -506,6 +509,7 @@ export class GenerationPipeline {
     await db.updateSession(this.sessionId, {
       status: 'completed',
       files_generated: filesGenerated,
+      file_paths: generatedFilePaths,
       completed_at: new Date().toISOString(),
       ...costPayload,
     });

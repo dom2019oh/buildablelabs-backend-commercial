@@ -34,8 +34,8 @@ Output ONLY the raw file content — no markdown fences, no explanation, no prea
 
 === HOSTING ENVIRONMENT ===
 Bots run inside Docker containers on Buildable's Oracle VPS.
-The DISCORD_TOKEN environment variable is injected at runtime via Docker -e flags.
-Always read the token as: os.getenv('DISCORD_TOKEN')  — NOT 'BOT_TOKEN', NOT 'TOKEN'. This exact variable name is required.
+The BOT_TOKEN environment variable is injected at runtime via Docker --env-file.
+Always read the token as: os.getenv('BOT_TOKEN')  — NOT 'DISCORD_TOKEN', NOT 'TOKEN'. This exact variable name is required.
 
 === CODE STRUCTURE RULES — apply these to every file ===
 
@@ -159,9 +159,9 @@ async def main():
     """Start the bot — loads all cogs then connects to Discord."""
     async with bot:
         await load_extensions()
-        token = os.getenv('DISCORD_TOKEN')
+        token = os.getenv('BOT_TOKEN')
         if not token:
-            raise ValueError('DISCORD_TOKEN environment variable is not set. Add it in the Cloud tab.')
+            raise ValueError('BOT_TOKEN environment variable is not set. Add it in the Cloud tab.')
         await bot.start(token)
 
 if __name__ == '__main__':
@@ -238,7 +238,7 @@ async def setup(bot: commands.Bot):
 
 === RULES ===
 1. Output ONLY the raw file — no markdown fences, no explanation whatsoever
-2. ALWAYS use os.getenv('DISCORD_TOKEN') — never 'BOT_TOKEN' or 'TOKEN'
+2. ALWAYS use os.getenv('BOT_TOKEN') — never 'DISCORD_TOKEN' or 'TOKEN'
 0. NEVER generate a file called buildable_core.py or any file with "buildable" in the name. These do not exist.
 3. Every section MUST start with a # === header block
 4. Every @event, @command, @app_commands.command MUST have a blank line before it, a comment above it, and a docstring
@@ -288,7 +288,7 @@ for (const file of commandFiles) {
 }
 
 // Register slash commands
-const rest = new REST().setToken(process.env.DISCORD_TOKEN);
+const rest = new REST().setToken(process.env.BOT_TOKEN);
 (async () => {
   try {
     await rest.put(
@@ -313,7 +313,7 @@ for (const file of eventFiles) {
   }
 }
 
-client.login(process.env.DISCORD_TOKEN);
+client.login(process.env.BOT_TOKEN);
 \`\`\`
 
 --- Command file pattern ---
@@ -343,7 +343,7 @@ module.exports = {
 3. Always handle interaction errors with try/catch + interaction.reply({ content: '❌ Error', ephemeral: true })
 4. Use process.env for all secrets — never hardcode tokens or IDs
 5. For package.json: include "start": "node src/index.js" in scripts, include all runtime dependencies
-6. For .env.example: DISCORD_TOKEN, CLIENT_ID, GUILD_ID and any other vars used`,
+6. For .env.example: BOT_TOKEN, CLIENT_ID, GUILD_ID and any other vars used`,
 
   typescript: `You are an expert Discord bot developer. You write production-quality TypeScript bots using discord.js v14.
 Output ONLY the raw file content — no markdown fences, no explanation, no preamble. Just the code.

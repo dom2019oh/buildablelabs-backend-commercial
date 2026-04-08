@@ -76,9 +76,20 @@ async function getBotEnvVars(workspaceId: string): Promise<string[]> {
   if (!envSnap.exists) return [];
 
   const data = envSnap.data()!;
-  return Object.entries(data)
+  const vars = Object.entries(data)
     .filter(([k]) => k !== 'updated_at')
     .map(([k, v]) => `${k}=${String(v)}`);
+
+  // Backwards-compat alias: generated code may use DISCORD_TOKEN (older bots)
+  // If only BOT_TOKEN is present, inject DISCORD_TOKEN pointing to the same value
+  const hasBotToken      = vars.some(e => e.startsWith('BOT_TOKEN='));
+  const hasDiscordToken  = vars.some(e => e.startsWith('DISCORD_TOKEN='));
+  if (hasBotToken && !hasDiscordToken) {
+    const val = vars.find(e => e.startsWith('BOT_TOKEN='))!.slice('BOT_TOKEN='.length);
+    vars.push(`DISCORD_TOKEN=${val}`);
+  }
+
+  return vars;
 }
 
 // ─── Generate requirements.txt if not present ────────────────────────────────

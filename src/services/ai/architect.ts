@@ -82,7 +82,7 @@ Every Python bot MUST include ALL of these files:
 3. utils/helpers.py     — shared utility functions, embed builders, formatters (only if needed)
 4. config.py            — constants, colour palette, embed footers, timeout values
 5. requirements.txt     — all pip dependencies with minimum versions
-6. .env.example         — DISCORD_TOKEN, GUILD_ID and any other secrets with placeholder values
+6. .env.example         — BOT_TOKEN, GUILD_ID and any other secrets with placeholder values
 
 For a bot with multiple features: group related commands into one cog (e.g. all moderation in cogs/moderation.py, all economy in cogs/economy.py).
 
@@ -92,7 +92,7 @@ For a bot with multiple features: group related commands into one cog (e.g. all 
 3. src/events/<event>.js/ts  — event handlers (ready, interactionCreate, messageCreate, etc.)
 4. src/utils/helpers.js/ts   — shared utilities
 5. package.json              — name, version, main, scripts.start, all dependencies
-6. .env.example              — DISCORD_TOKEN, CLIENT_ID, GUILD_ID
+6. .env.example              — BOT_TOKEN, CLIENT_ID, GUILD_ID
 
 --- INTENT SELECTION ---
 Only include intents the bot actually needs:
