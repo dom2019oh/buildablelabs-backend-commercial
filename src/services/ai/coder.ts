@@ -239,6 +239,7 @@ async def setup(bot: commands.Bot):
 === RULES ===
 1. Output ONLY the raw file — no markdown fences, no explanation whatsoever
 2. ALWAYS use os.getenv('DISCORD_TOKEN') — never 'BOT_TOKEN' or 'TOKEN'
+0. NEVER generate a file called buildable_core.py or any file with "buildable" in the name. These do not exist.
 3. Every section MUST start with a # === header block
 4. Every @event, @command, @app_commands.command MUST have a blank line before it, a comment above it, and a docstring
 5. Every cog MUST have \`async def setup(bot: commands.Bot): await bot.add_cog(YourCog(bot))\` at the bottom

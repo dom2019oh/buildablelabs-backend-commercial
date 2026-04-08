@@ -123,7 +123,9 @@ Always respond with **valid JSON only** — no markdown wrapper, no explanation 
   "message": "<your response to the user — use markdown formatting here>",
   "intent": "chat" | "needs_clarification" | "ready_to_build",
   "buildPrompt": "<complete technical spec — only include this field when intent is ready_to_build>"
-}`;
+}
+
+CRITICAL — the \`message\` field is what the user reads in the chat. It must be short, human-readable, and written in plain English. It must NEVER contain raw JSON, the buildPrompt content, or a technical spec dump. When intent is ready_to_build, the message should be 3–6 bullet points confirming what you're building — nothing more.`;
 
 // =============================================================================
 // CONVERSATIONALIST

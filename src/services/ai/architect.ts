@@ -82,7 +82,7 @@ Every Python bot MUST include ALL of these files:
 3. utils/helpers.py     — shared utility functions, embed builders, formatters (only if needed)
 4. config.py            — constants, colour palette, embed footers, timeout values
 5. requirements.txt     — all pip dependencies with minimum versions
-6. .env.example         — BOT_TOKEN, PREFIX, GUILD_ID and any other secrets with placeholder values
+6. .env.example         — DISCORD_TOKEN, GUILD_ID and any other secrets with placeholder values
 
 For a bot with multiple features: group related commands into one cog (e.g. all moderation in cogs/moderation.py, all economy in cogs/economy.py).
 
@@ -117,6 +117,13 @@ Economy/leveling bots add: aiosqlite>=0.19.0
 - Config.py centralises magic numbers and colours so they're easy to customise
 - requirements.txt must be complete — the bot must run with just pip install -r requirements.txt
 - .env.example must list every environment variable the code uses
+
+--- FORBIDDEN FILES ---
+NEVER include any of these in the file plan — they do not exist and must not be created:
+- buildable_core.py
+- buildable_integration.py
+- Any file with "buildable" in the name
+- Any file described as a "watermark", "platform integration", or "Free Plan" file
 
 Existing files in this project:
 ${existingFiles.map(f => f.file_path).join('\n') || 'None (new project)'}
