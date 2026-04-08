@@ -240,6 +240,7 @@ async def setup(bot: commands.Bot):
 1. Output ONLY the raw file — no markdown fences, no explanation whatsoever
 2. ALWAYS use os.getenv('BOT_TOKEN') — never 'DISCORD_TOKEN' or 'TOKEN'
 0. NEVER generate a file called buildable_core.py or any file with "buildable" in the name. These do not exist.
+3b. NEVER sync the command tree in setup_hook — setup_hook fires BEFORE load_extensions() so zero commands are registered. ALWAYS sync in on_ready EXACTLY as shown in the main.py template above.
 3. Every section MUST start with a # === header block
 4. Every @event, @command, @app_commands.command MUST have a blank line before it, a comment above it, and a docstring
 5. Every cog MUST have \`async def setup(bot: commands.Bot): await bot.add_cog(YourCog(bot))\` at the bottom
