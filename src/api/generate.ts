@@ -78,7 +78,9 @@ app.post('/:workspaceId', async (c) => {
     }
 
     // Determine action type for credit deduction
+    // Also check for existing code files — used later to decide smart vs full pipeline
     let actionType: ActionType;
+    let hasCodeFiles = false;
     if (mode === 'plan') {
       actionType = 'plan_mode';
     } else if (mode === 'architect') {
@@ -86,7 +88,7 @@ app.post('/:workspaceId', async (c) => {
     } else {
       // build mode: full_build if no code files exist yet, edit_iterate otherwise
       const existingFiles = await db.getWorkspaceFiles(workspaceId);
-      const hasCodeFiles = existingFiles.some(f => /\.(py|js|ts)$/.test(f.file_path));
+      hasCodeFiles = existingFiles.some(f => /\.(py|js|ts)$/.test(f.file_path));
       actionType = hasCodeFiles ? 'edit_iterate' : 'full_build';
     }
 
@@ -117,6 +119,7 @@ app.post('/:workspaceId', async (c) => {
       sessionId: session.id,
       prompt,
       mode,
+      hasExistingCode: hasCodeFiles, // triggers Smart Task mode for edits/iterations
       options: {
         ...options,
         model: creditResult.model,  // plan-based model selection

@@ -12,6 +12,7 @@ import * as db from '../../db/queries';
 import { Architect } from './architect';
 import { Coder } from './coder';
 import { Validator } from './validator';
+import { SmartPlanner } from './smartPlanner';
 import { env } from '../../config/env';
 import type { StageUsage } from './providers';
 
@@ -81,6 +82,8 @@ export interface PipelineOptions {
   sessionId: string;
   prompt: string;
   mode?: WorkspaceMode;
+  /** True when code files already exist — triggers Smart Task instead of full rebuild */
+  hasExistingCode?: boolean;
   options?: {
     template?: string;
     model?: string;
@@ -109,6 +112,7 @@ export class GenerationPipeline {
   private sessionId: string;
   private prompt: string;
   private mode: WorkspaceMode;
+  private hasExistingCode: boolean;
   private options: PipelineOptions['options'];
 
   constructor(config: PipelineOptions) {
@@ -117,6 +121,7 @@ export class GenerationPipeline {
     this.sessionId = config.sessionId;
     this.prompt = config.prompt;
     this.mode = config.mode ?? 'build';
+    this.hasExistingCode = config.hasExistingCode ?? false;
     this.options = config.options;
   }
 
@@ -128,6 +133,8 @@ export class GenerationPipeline {
         await this.runPlanMode(startTime);
       } else if (this.mode === 'architect') {
         await this.runArchitectMode(startTime);
+      } else if (this.hasExistingCode) {
+        await this.runSmartMode(startTime);
       } else {
         await this.runBuildMode(startTime);
       }
@@ -224,6 +231,161 @@ export class GenerationPipeline {
     await db.updateWorkspaceStatus(this.workspaceId, 'ready');
 
     logger.info({ sessionId: this.sessionId, durationMs: duration, ...costPayload }, '[Architect Mode] Architecture docs created');
+  }
+
+  // ===========================================================================
+  // SMART MODE — Targeted edits: plan only changed files → update them → validate
+  // ===========================================================================
+  // Used when existing code files are present. Instead of rebuilding everything,
+  // a SmartPlanner determines which 1-3 files need to change, then only those
+  // files are regenerated. Falls back to full BUILD MODE if needed.
+
+  private async runSmartMode(startTime: number): Promise<void> {
+    logger.info({ sessionId: this.sessionId }, '[Smart Mode] Analysing changes needed');
+
+    await db.updateSession(this.sessionId, { status: 'planning' });
+
+    const existingFiles = await db.getWorkspaceFiles(this.workspaceId);
+
+    // ── Stage 1: Smart Planner ────────────────────────────────────────────────
+    const planner = new SmartPlanner();
+    const { plan: smartPlan, usage: plannerUsage } = await planner.plan(this.prompt, existingFiles);
+
+    logger.info({
+      sessionId: this.sessionId,
+      strategy: smartPlan.strategy,
+      reason: smartPlan.reason,
+      changes: smartPlan.changes.map(c => `${c.action}:${c.path}`),
+    }, '[Smart Mode] Plan ready');
+
+    // If the planner decides a full rebuild is needed, delegate to BUILD MODE
+    if (smartPlan.strategy === 'full_rebuild') {
+      logger.info({ sessionId: this.sessionId }, '[Smart Mode] Falling back to full build mode');
+      await this.runBuildMode(startTime);
+      return;
+    }
+
+    if (smartPlan.changes.length === 0) {
+      logger.warn({ sessionId: this.sessionId }, '[Smart Mode] No changes identified — completing as-is');
+      await db.updateSession(this.sessionId, {
+        status: 'completed',
+        files_generated: 0,
+        completed_at: new Date().toISOString(),
+        cost_usd: plannerUsage.costUsd,
+        cost_breakdown: { smart_planner: { model: plannerUsage.model, cost_usd: plannerUsage.costUsd } },
+        tokens_total: { input: plannerUsage.inputTokens, output: plannerUsage.outputTokens, cache_creation: 0, cache_read: 0 },
+      });
+      await db.updateWorkspaceStatus(this.workspaceId, 'ready');
+      return;
+    }
+
+    await db.updateSession(this.sessionId, {
+      files_planned: smartPlan.changes.length,
+      status: 'generating',
+    });
+
+    // ── Stage 2: Targeted Code Generation ────────────────────────────────────
+    const coder = new Coder(this.options?.model ?? env.DEFAULT_CODER_MODEL);
+    let filesGenerated = 0;
+    let coderUsage = { stage: 'coder' as const, model: this.options?.model ?? env.DEFAULT_CODER_MODEL, inputTokens: 0, outputTokens: 0, cacheCreationTokens: 0, cacheReadTokens: 0, costUsd: 0 };
+
+    const changedFilePaths: string[] = [];
+
+    for (const change of smartPlan.changes) {
+      try {
+        // Always re-fetch current files so each iteration has fresh content
+        const currentFiles = await db.getWorkspaceFiles(this.workspaceId);
+
+        const { content, usage: fileUsage } = await coder.smartUpdateFile(
+          change.path,
+          change.instructions,
+          currentFiles,
+          this.prompt,
+          change.action,
+        );
+
+        coderUsage = addUsage(coderUsage, fileUsage);
+
+        const existingFile = currentFiles.find(f => f.file_path === change.path);
+        await db.recordFileOperation(
+          this.workspaceId,
+          this.userId,
+          this.sessionId,
+          change.action === 'create' ? 'create' : 'update',
+          change.path,
+          {
+            previousContent: existingFile?.content,
+            newContent: content,
+            aiModel: fileUsage.model,
+            aiReasoning: change.instructions.slice(0, 200),
+          }
+        );
+
+        await db.upsertFile(this.workspaceId, this.userId, change.path, content);
+
+        filesGenerated++;
+        changedFilePaths.push(change.path);
+        await db.updateSession(this.sessionId, { files_generated: filesGenerated });
+
+        logger.info({
+          sessionId: this.sessionId,
+          file: change.path,
+          action: change.action,
+          progress: `${filesGenerated}/${smartPlan.changes.length}`,
+        }, '[Smart Mode] File updated');
+
+      } catch (fileError) {
+        logger.error({
+          error: fileError,
+          file: change.path,
+          sessionId: this.sessionId,
+        }, '[Smart Mode] Failed to update file');
+      }
+    }
+
+    coderUsage.filesGenerated = filesGenerated;
+
+    // ── Stage 3: Targeted Validation (changed files only) ─────────────────────
+    await db.updateSession(this.sessionId, { status: 'validating' });
+
+    const validator = new Validator();
+    const allFiles = await db.getWorkspaceFiles(this.workspaceId);
+
+    // Only validate the files we just changed — not the whole codebase
+    const filesToValidate = allFiles.filter(f => changedFilePaths.includes(f.file_path));
+    const validationResult = await validator.validate(filesToValidate);
+    const { usage: validatorUsage } = validationResult;
+
+    if (validationResult.repairs.length > 0) {
+      logger.warn({
+        sessionId: this.sessionId,
+        repairs: validationResult.repairs.map(r => r.filePath),
+      }, '[Smart Mode] Auto-repairing issues found by validator');
+
+      for (const repair of validationResult.repairs) {
+        await db.upsertFile(this.workspaceId, this.userId, repair.filePath, repair.content);
+      }
+    }
+
+    const duration = Date.now() - startTime;
+    const costPayload = buildCostPayload([plannerUsage, coderUsage, validatorUsage]);
+
+    await db.updateSession(this.sessionId, {
+      status: 'completed',
+      files_generated: filesGenerated,
+      completed_at: new Date().toISOString(),
+      ...costPayload,
+    });
+
+    await db.updateWorkspaceStatus(this.workspaceId, 'ready');
+
+    logger.info({
+      sessionId: this.sessionId,
+      filesUpdated: filesGenerated,
+      changedFiles: changedFilePaths,
+      durationMs: duration,
+      costUsd: `$${costPayload.cost_usd.toFixed(6)}`,
+    }, '[Smart Mode] Completed');
   }
 
   // ===========================================================================

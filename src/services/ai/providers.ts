@@ -36,7 +36,7 @@ export interface AIRequestOptions {
 
 /** Per-stage usage summary returned by each AI service. */
 export interface StageUsage {
-  stage: 'architect' | 'coder' | 'validator';
+  stage: 'architect' | 'coder' | 'validator' | 'smart_planner';
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -84,9 +84,10 @@ export function calculateCost(
 // MODEL SELECTION
 // =============================================================================
 
-export function resolveModel(role: 'architect' | 'coder' | 'validator'): string {
-  if (role === 'architect') return env.DEFAULT_ARCHITECT_MODEL;
-  if (role === 'validator') return env.DEFAULT_VALIDATOR_MODEL;
+export function resolveModel(role: 'architect' | 'coder' | 'validator' | 'smart_planner'): string {
+  if (role === 'architect')    return env.DEFAULT_ARCHITECT_MODEL;
+  if (role === 'validator')    return env.DEFAULT_VALIDATOR_MODEL;
+  if (role === 'smart_planner') return env.DEFAULT_VALIDATOR_MODEL; // Haiku — fast analysis, not code gen
   return env.DEFAULT_CODER_MODEL;
 }
 

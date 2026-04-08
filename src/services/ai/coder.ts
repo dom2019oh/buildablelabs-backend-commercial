@@ -505,4 +505,116 @@ Output ONLY the raw file content — no markdown fences, no explanation.`;
 
     return { content, usage };
   }
+
+  // ===========================================================================
+  // SMART UPDATE — Surgically modify an existing file based on specific instructions
+  // ===========================================================================
+  // Used by Smart Task mode. Passes the full existing file content so the AI
+  // can preserve everything that doesn't need to change.
+
+  async smartUpdateFile(
+    filePath: string,
+    instructions: string,
+    existingFiles: ExistingFile[],
+    originalPrompt: string,
+    action: 'update' | 'create' = 'update',
+  ): Promise<{ content: string; usage: StageUsage }> {
+
+    const thisFile = existingFiles.find(f => f.file_path === filePath);
+
+    // Detect language from file extension
+    const ext = filePath.split('.').pop() ?? 'py';
+    const language = ext === 'py' ? 'python' : ext === 'ts' ? 'typescript' : 'javascript';
+    const systemPrompt = SYSTEM_PROMPTS[language] ?? SYSTEM_PROMPTS['python'];
+
+    // Include all other files as condensed context (paths + first 200 chars)
+    // so the AI understands the surrounding codebase without burning tokens
+    const contextSummary = existingFiles
+      .filter(f => f.file_path !== filePath)
+      .map(f => {
+        const preview = f.content.length > 200
+          ? f.content.slice(0, 200) + '\n... (truncated)'
+          : f.content;
+        return `### ${f.file_path}\n\`\`\`\n${preview}\n\`\`\``;
+      })
+      .join('\n\n');
+
+    const userPrompt = action === 'update'
+      ? `Update the file: ${filePath}
+
+EXISTING FILE CONTENT (preserve everything not mentioned in the change):
+\`\`\`
+${thisFile?.content ?? '# (file not found — treat as new)'}
+\`\`\`
+
+CHANGE REQUIRED:
+${instructions}
+
+ORIGINAL USER REQUEST (for intent):
+${originalPrompt}
+
+OTHER FILES IN THE PROJECT (for context only — do NOT modify them):
+${contextSummary || 'None'}
+
+Output the complete updated file — all existing code PLUS your changes.
+Preserve all existing functionality that is not mentioned in the change.
+Output ONLY the raw file content — no markdown fences, no explanation.`
+      : `Create the file: ${filePath}
+
+INSTRUCTIONS:
+${instructions}
+
+ORIGINAL USER REQUEST (for intent):
+${originalPrompt}
+
+EXISTING FILES IN THE PROJECT (for context — do NOT recreate them):
+${contextSummary || 'None'}
+
+Output the complete file content.
+Output ONLY the raw file content — no markdown fences, no explanation.`;
+
+    logger.info({
+      model: this.model,
+      file: filePath,
+      action,
+      language,
+      instructionLength: instructions.length,
+    }, 'Smart-updating file');
+
+    const response = await callAI({
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+      model: this.model,
+      maxTokens: 16000,
+      temperature: 0.1,
+    });
+
+    // Strip any accidental markdown fences
+    let content = response.content.trim();
+    if (content.startsWith('```')) {
+      content = content.replace(/^```\w*\n?/, '').replace(/\n?```$/, '');
+    }
+
+    logger.info({
+      file: filePath,
+      action,
+      model: response.model,
+      contentLength: content.length,
+      inputTokens: response.inputTokens,
+      outputTokens: response.outputTokens,
+      costUsd: `$${response.costUsd.toFixed(6)}`,
+    }, 'File smart-updated');
+
+    const usage: StageUsage = {
+      stage: 'coder',
+      model: response.model,
+      inputTokens: response.inputTokens,
+      outputTokens: response.outputTokens,
+      cacheCreationTokens: response.cacheCreationTokens,
+      cacheReadTokens: response.cacheReadTokens,
+      costUsd: response.costUsd,
+    };
+
+    return { content, usage };
+  }
 }
