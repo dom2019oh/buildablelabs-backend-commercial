@@ -158,8 +158,8 @@ exec python main.py
     await sftpUploadFiles([{ path: 'start.sh', content: startScript }], botDir);
     await sshExec(`chmod +x ${botDir}/start.sh`);
 
-    // 6. Ensure shared pip-cache directory exists on host
-    await sshExec(`mkdir -p ${BOTS_DIR}/.pip-cache`);
+    // 6. Ensure shared pip-cache directory exists and is writable by any container user
+    await sshExec(`mkdir -p ${BOTS_DIR}/.pip-cache && chmod 777 ${BOTS_DIR}/.pip-cache`);
 
     // 7. Run the container — secrets injected via --env-file, never in command line
     const runCmd = [
