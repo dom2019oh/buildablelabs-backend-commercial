@@ -28,9 +28,19 @@ function getStripe(): Stripe {
 //          STRIPE_PRICE_MAX_T1 ... STRIPE_PRICE_MAX_T10
 // If a Price ID is not set, checkout will fail with a clear error.
 // =============================================================================
+// Valid tier IDs — exhaustive allowlist, prevents env-var probing
+const VALID_TIER_IDS = new Set([
+  'pro-t1','pro-t2','pro-t3','pro-t4','pro-t5','pro-t6','pro-t7','pro-t8','pro-t9','pro-t10',
+  'pro-t1-annual','pro-t2-annual','pro-t3-annual','pro-t4-annual','pro-t5-annual',
+  'pro-t6-annual','pro-t7-annual','pro-t8-annual','pro-t9-annual','pro-t10-annual',
+  'max-t1','max-t2','max-t3','max-t4','max-t5','max-t6','max-t7','max-t8','max-t9','max-t10',
+  'max-t1-annual','max-t2-annual','max-t3-annual','max-t4-annual','max-t5-annual',
+  'max-t6-annual','max-t7-annual','max-t8-annual','max-t9-annual','max-t10-annual',
+]);
+
 function getPriceId(tierId: string): string | null {
-  // tierId format: "pro-t1" | "max-t3" etc.
-  const key = `STRIPE_PRICE_${tierId.toUpperCase().replace('-', '_')}`;
+  if (!VALID_TIER_IDS.has(tierId)) return null;
+  const key = `STRIPE_PRICE_${tierId.toUpperCase().replace(/-/g, '_')}`;
   return (process.env[key] ?? null);
 }
 
@@ -113,6 +123,12 @@ app.post('/checkout', async (c) => {
       metadata: { firebase_uid: userId, tier_id: tierId },
       subscription_data: { metadata: { firebase_uid: userId, tier_id: tierId } },
       allow_promotion_codes: true,
+      custom_text: {
+        terms_of_service_acceptance: {
+          message: 'Credits are non-refundable and non-transferable once issued. By subscribing you agree to the Buildable Labs Terms of Service.',
+        },
+      },
+      consent_collection: { terms_of_service: 'required' },
     });
 
     return c.json({ url: session.url });
